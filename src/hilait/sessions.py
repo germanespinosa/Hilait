@@ -126,7 +126,8 @@ class SessionManager:
                 if not data:
                     break
                 session.append(data)
-                self.audit.write("terminal_output", session.context(), {"base64": base64.b64encode(data).decode()})
+                await asyncio.to_thread(self.audit.write, "terminal_output", session.context(),
+                                        {"base64": base64.b64encode(data).decode()})
         except Exception as exc:
             self.audit.write("session_error", session.context(), {"error": str(exc)})
         finally:
@@ -141,9 +142,14 @@ class SessionManager:
     async def write(self, session_id: str, data: bytes, *, human: bool = False) -> dict:
         session = self.get(session_id)
         # Human keystrokes may contain a password and are never recorded verbatim.
-        self.audit.write("human_terminal_input" if human else "terminal_input_sent", session.context(),
-                         {"redacted": True, "length": len(data)} if human else {"base64": base64.b64encode(data).decode()})
+        await asyncio.to_thread(self.audit.write,
+                                "human_terminal_input" if human else "terminal_input_sent", session.context(),
+                                {"redacted": True, "length": len(data)} if human else {"base64": base64.b64encode(data).decode()})
         await asyncio.to_thread(session.channel.sendall, data)
+        if human:
+            # The browser receives shell output on its independent stream. Waiting
+            # and encoding the full scrollback here delayed every keystroke.
+            return {"sent": len(data)}
         await asyncio.sleep(0.05)
         return session.read()
 

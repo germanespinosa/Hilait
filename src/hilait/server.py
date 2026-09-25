@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .agents import AgentRuntime, ENDED, SCOPES
@@ -77,7 +77,7 @@ def create_app(root: Path | None = None) -> FastAPI:
         for session_id in list(runtime.sessions.sessions):
             await runtime.sessions.close(session_id, "Hilait stopped")
 
-    app = FastAPI(title="Hilait", version="0.1.1", lifespan=lifespan)
+    app = FastAPI(title="Hilait", version="0.1.2", lifespan=lifespan)
     app.state.runtime = runtime
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
@@ -113,7 +113,8 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @app.get("/")
     async def index():
-        return FileResponse(STATIC / "index.html")
+        html = (STATIC / "index.html").read_text(encoding="utf-8").replace("{{VERSION}}", app.version)
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     @app.get("/health")
     async def health():

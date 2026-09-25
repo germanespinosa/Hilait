@@ -1,0 +1,164 @@
+@font-face {
+  font-family: 'Hilait Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('/static/fonts/jetbrains-mono-latin-ext-400-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Hilait Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('/static/fonts/jetbrains-mono-latin-400-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: 'Hilait Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url('/static/fonts/jetbrains-mono-latin-ext-700-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Hilait Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url('/static/fonts/jetbrains-mono-latin-700-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+.terminal {
+  padding: 12px 14px;
+}
+.terminal .xterm {
+  height: 100%;
+}
+
+@media (max-width: 900px) {
+  .workspace {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    min-width: 0;
+  }
+  .machines-pane,
+  .sessions-pane {
+    flex: none;
+    display: flex;
+    width: 100%;
+    min-height: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .machines-pane {
+    padding: 10px 12px 6px;
+  }
+  .brand {
+    margin: 0 0 8px;
+  }
+  .brand img {
+    width: 32px;
+    height: 32px;
+  }
+  .brand strong {
+    font-size: 20px;
+  }
+  .brand small,
+  .machines-pane .eyebrow,
+  .aside-foot,
+  .sessions-pane header {
+    display: none;
+  }
+  .icon-row {
+    position: absolute;
+    right: 12px;
+    top: 9px;
+  }
+  .icon-row .icon {
+    min-width: 38px;
+    min-height: 38px;
+    padding: 3px;
+    font-size: 20px;
+  }
+  .search-label {
+    margin: 4px 0 6px;
+  }
+  .search-label input {
+    margin-top: 3px;
+  }
+  #machine-list,
+  #session-list {
+    display: flex;
+    flex: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 5px;
+  }
+  #machine-list .machine,
+  #session-list .session-row {
+    flex: 0 0 175px;
+    margin: 2px 0;
+    padding: 7px 9px;
+  }
+  .sessions-pane {
+    padding: 3px 10px;
+  }
+  #session-list:empty {
+    display: none;
+  }
+  .sessions-pane:has(#session-list:empty) {
+    display: none;
+  }
+  .main-pane {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    padding: 8px;
+  }
+  .terminal-top {
+    gap: 8px;
+  }
+  .terminal-top > div:first-child {
+    min-width: 0;
+  }
+  #terminal-title,
+  #terminal-subtitle {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .terminal {
+    padding: 8px;
+  }
+  .files-pane {
+    position: absolute;
+    top: 130px;
+    right: 8px;
+    bottom: 42px;
+    width: min(360px, calc(100vw - 16px));
+    z-index: 2;
+  }
+  footer {
+    flex: none;
+    min-height: 30px;
+  }
+}
+
+@media (max-width: 500px) {
+  .search-label {
+    display: none;
+  }
+  .toolbar button {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  .files-pane {
+    top: 104px;
+  }
+}

@@ -63,16 +63,19 @@
     if (!terminal || terminal.sessionId !== session.id) openTerminal(session.id);
     if (!$('#files-pane').classList.contains('hidden')) loadFiles();
   }
-  function openTerminal(sessionId) {
+  async function openTerminal(sessionId) {
     terminalSocket?.close(); terminal?.dispose(); $('#terminal').innerHTML = '';
-    terminal = new window.HilaitTerminal($('#terminal')); terminal.sessionId = sessionId;
+    const current = new window.HilaitTerminal($('#terminal')); current.sessionId = sessionId; terminal = current;
+    await current.ready;
+    if (terminal !== current || selectedSession !== sessionId) return;
     const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/terminal/${sessionId}?token=${encodeURIComponent(token)}`;
-    terminalSocket = new WebSocket(url);
-    terminalSocket.onopen = () => { terminal.fit(); terminal.focus(); terminalSocket.send(JSON.stringify({type:'resize', columns:terminal.columns(), rows:terminal.rows()})); };
-    terminalSocket.onmessage = event => { const item = JSON.parse(event.data); if (item.type === 'output') terminal.write(item.base64); else if (item.type === 'screen_request') terminalSocket.send(JSON.stringify({type:'screen_response', id:item.id, screen:terminal.screen()})); else if (item.type === 'closed') refresh(); };
-    terminal.onInput = data => { if (terminalSocket?.readyState === 1) terminalSocket.send(JSON.stringify({type:'input', text:data})); };
-    terminal.onResize = (columns, rows) => { if (terminalSocket?.readyState === 1) terminalSocket.send(JSON.stringify({type:'resize', columns, rows})); };
-    terminal.onStatus = status;
+    const socket = new WebSocket(url); terminalSocket = socket;
+    socket.onopen = () => { current.fit(); current.focus(); socket.send(JSON.stringify({type:'resize', columns:current.columns(), rows:current.rows()})); };
+    socket.onmessage = event => { if (terminal !== current) return; const item = JSON.parse(event.data); if (item.type === 'output') current.write(item.base64); else if (item.type === 'screen_request') socket.send(JSON.stringify({type:'screen_response', id:item.id, screen:current.screen()})); else if (item.type === 'closed') refresh(); };
+    current.onInput = data => { if (socket.readyState === 1) socket.send(JSON.stringify({type:'input', text:data})); };
+    current.onBinary = base64 => { if (socket.readyState === 1) socket.send(JSON.stringify({type:'input', base64})); };
+    current.onResize = (columns, rows) => { if (socket.readyState === 1) socket.send(JSON.stringify({type:'resize', columns, rows})); };
+    current.onStatus = status;
   }
   function connect(profileId) { action(async () => { const profile = state.profiles.find(p => p.id === profileId); let secret; if (!profile.has_saved_secret) { secret = prompt(`SSH password or private-key passphrase for ${profile.name} (leave blank for an unencrypted key)`); if (secret === null) return; } const result = await api('/api/sessions', 'POST', {profile:profileId, secret}); selectedProfile = profileId; selectedSession = result.session; status(`Connected · ${profile.name}`); }); }
   function disconnect(sessionId) { if (!confirm('Disconnect this SSH session? Any running foreground command and active file operation may be interrupted.')) return; action(() => api(`/api/sessions/${sessionId}`, 'DELETE')); }

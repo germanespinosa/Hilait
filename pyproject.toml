@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hilait"
-version = "0.1.1"
+version = "0.1.2"
 description = "Human-in-the-loop SSH workspace with a local web interface and agent access"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -33,6 +33,7 @@ packages = ["src/hilait"]
 "THIRD-PARTY-NOTICES.md" = "hilait/THIRD-PARTY-NOTICES.md"
 "licenses/xterm-MIT.txt" = "hilait/licenses/xterm-MIT.txt"
 "licenses/xterm-graphemes.txt" = "hilait/licenses/xterm-graphemes.txt"
+"licenses/jetbrains-mono-OFL.txt" = "hilait/licenses/jetbrains-mono-OFL.txt"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

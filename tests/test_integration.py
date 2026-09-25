@@ -50,6 +50,7 @@ async def test_ssh_host_trust_terminal_sftp_and_agent_scope(tmp_path, fixture_se
             await asyncio.sleep(.1)
         assert "echo: hello" in first.read(before)["text"]
         assert "echo: hello" not in second.read()["text"]
+        assert await runtime.sessions.write(first.id, b"human\r", human=True) == {"sent": 6}
         result = await runtime.files.operate(first.id, "write", "/test.txt", base64=base64.b64encode(b"hello files").decode())
         assert result["written"] == 11
         assert base64.b64decode((await runtime.files.operate(first.id,"read","/test.txt"))["base64"]) == b"hello files"
@@ -87,6 +88,11 @@ async def test_api_token_and_machine_authorization(tmp_path):
     app = create_app(tmp_path)
     runtime = app.state.runtime
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
+        home = await client.get("/")
+        assert home.status_code == 200
+        assert home.headers["cache-control"] == "no-store"
+        assert f"/static/vendor/xterm.js?v={app.version}" in home.text
+        assert (await client.get("/static/fonts/jetbrains-mono-latin-400-normal.woff2")).status_code == 200
         assert (await client.get("/api/state")).status_code == 401
         headers = {"Authorization":"Bearer "+runtime.store.admin_token}
         created = await client.post("/api/profiles", headers=headers, json={"name":"One","host":"localhost","username":"ada"})

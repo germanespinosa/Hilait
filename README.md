@@ -18,7 +18,14 @@ python -m pip install .
 hilait serve --open
 ```
 
-To install straight from GitHub:
+To install straight from GitHub **without Git installed**:
+
+```bash
+python -m pip install 'https://github.com/germanespinosa/Hilait/archive/refs/heads/main.zip'
+hilait serve --open
+```
+
+The `git+https://...` form also works, but it requires the `git` executable on the server:
 
 ```bash
 python -m pip install git+https://github.com/germanespinosa/Hilait.git

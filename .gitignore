@@ -1,0 +1,12 @@
+.venv/
+node_modules/
+tmp-smoke/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.coverage
+.env
+*.audit

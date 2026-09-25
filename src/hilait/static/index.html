@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Hilait · Human in the loop AI terminal</title>
+  <link rel="icon" href="/static/logo.png">
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/vendor/xterm.css">
+</head>
+<body>
+  <div id="login" class="login-shell hidden">
+    <div class="login-card">
+      <img src="/static/logo.png" alt="" width="52" height="52">
+      <h1>Hilait</h1>
+      <p>Enter the admin token printed by <code>hilait serve</code>.</p>
+      <label>Admin token<input id="login-token" type="password" autocomplete="off"></label>
+      <button id="login-button" class="primary">Open workspace</button>
+      <p id="login-error" class="error"></p>
+    </div>
+  </div>
+
+  <div id="workspace" class="workspace hidden">
+    <aside class="machines-pane">
+      <div class="brand"><img src="/static/logo.png" alt="" width="46" height="46"><div><strong>Hilait</strong><small>HUMAN IN THE LOOP<br>AI TERMINAL</small></div></div>
+      <div class="icon-row">
+        <button id="new-profile" class="icon" title="New connection" aria-label="New connection">＋</button>
+        <button id="open-settings" class="icon" title="Settings" aria-label="Settings">⚙</button>
+        <button id="open-logs" class="icon" title="Agent session logs" aria-label="Agent session logs">▤</button>
+      </div>
+      <label class="search-label">Search connections<input id="search-profiles" type="search" placeholder="Find a machine"></label>
+      <h2 class="eyebrow">CONNECTIONS · MACHINES</h2>
+      <div id="machine-list" class="list scroll"></div>
+      <div class="aside-foot"><span>Protected on this device</span><small>Secrets and agent logs are encrypted.<br>Server identities are verified.</small></div>
+    </aside>
+
+    <section class="sessions-pane">
+      <header><h2>ACTIVE CONNECTIONS</h2><p>Sessions on the selected machine</p></header>
+      <div id="session-list" class="list scroll"></div>
+    </section>
+
+    <main class="main-pane">
+      <div id="welcome" class="welcome"><span class="eyebrow accent">READY WHEN YOU ARE</span><h1>Choose a connection.</h1><p>Double-click a saved machine to open a terminal. Agent requests appear here for your approval.</p><button id="welcome-new" class="primary">＋ New connection</button></div>
+      <div id="session-view" class="session-view hidden">
+        <div id="agent-strip" class="agent-strip hidden"></div>
+        <div class="terminal-top"><div><strong id="terminal-title"></strong><span id="terminal-subtitle"></span></div><div class="toolbar"><button id="files-toggle">Files</button><button id="terminal-close">Disconnect</button></div></div>
+        <div class="terminal-and-files"><div id="terminal" class="terminal"></div><section id="files-pane" class="files-pane hidden"><div class="files-head"><strong>Remote files</strong><button id="files-close" class="text-button" aria-label="Close files">×</button></div><div class="path-row"><input id="files-path" value="/" aria-label="Remote path"><button id="files-refresh" title="Refresh">↻</button></div><div class="file-actions"><button id="files-up">Up</button><button id="files-new-folder">New folder</button><button id="files-new-file">New file</button><button id="files-new-link">New link</button><button id="files-upload">Upload</button><input id="upload-input" type="file" hidden><button id="files-download">Download</button></div><div id="files-list" class="scroll"></div></section></div>
+      </div>
+    </main>
+    <footer id="status">Ready</footer>
+  </div>
+
+  <div id="modal-backdrop" class="modal-backdrop hidden"><div id="modal" class="modal" role="dialog" aria-modal="true"></div></div>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/vendor/xterm.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

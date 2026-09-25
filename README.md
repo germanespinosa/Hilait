@@ -1,0 +1,83 @@
+# Hilait
+
+**A human-in-the-loop SSH workspace you can run with Python.** Hilait serves a local web interface for interactive terminals, remote files, and controlled access for AI agents. It runs on Windows, Linux, and macOS. The server owns SSH credentials; agents receive a named, limited MCP configuration and must state their purpose before requesting a machine.
+
+This is the Python and browser edition of [HilaitWin](https://github.com/germanespinosa/HilaitWin). It keeps the same connection, agent, audit, and review concepts while replacing Windows-only windows and Explorer shell integration with a browser workspace.
+
+## Install and start
+
+Python 3.11 or newer is required. A virtual environment is recommended.
+
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# Linux/macOS: source .venv/bin/activate
+python -m pip install .
+hilait serve --open
+```
+
+To install straight from GitHub:
+
+```bash
+python -m pip install git+https://github.com/germanespinosa/Hilait.git
+hilait serve --open
+```
+
+The server binds to `127.0.0.1:8765` by default. It prints an admin token and opens the browser when `--open` is used. If the browser cannot be launched, visit `http://127.0.0.1:8765` and paste the printed token. The web workspace retains the token for that browser tab session. Hilait intentionally refuses a public bind address; use an SSH tunnel to view it from another computer.
+
+```bash
+hilait serve --port 8766
+```
+
+The package includes its terminal JavaScript and CSS. Node.js is needed only when rebuilding those assets from source.
+
+## Use the workspace
+
+Create a saved machine with a display name, host, port, username, and optional SSH password or private-key path. A saved password or passphrase is encrypted locally. Hilait verifies the server's SHA-256 host-key fingerprint *before* sending SSH credentials. Compare a new or changed fingerprint with a trusted source, then explicitly trust it. You can keep multiple independent SSH terminals to the same machine; each agent purpose gets its own session.
+
+The left column holds saved machines. Drag one between its neighbors to save a new order. Selecting a machine shows only its active sessions, newest first. A new session selects its machine and terminal automatically; closed sessions disappear. Double-click a machine to connect, and disconnect from the terminal header or a session's context menu. Disconnecting warns that a remote foreground command or transfer may be interrupted.
+
+The terminal uses bundled xterm.js with Unicode, ANSI color, alternate screen programs, scrollback, resizing, selection, copy/paste, search, and a rendered screen snapshot. Ctrl+C copies a selection and otherwise reaches the shell. Ctrl+V pastes; multiline pastes ask for confirmation. Right-click opens Copy and Paste. Ctrl+F searches scrollback, Ctrl+U toggles Unicode width behavior, and Ctrl+plus/minus changes the terminal font size.
+
+**Files** opens a remote SFTP pane beside the selected terminal. Browse directories, create folders, upload and download through the browser, and rename or delete from the context menu. The SFTP API additionally supports paged listings, stat, bounded reads and writes, POSIX chmod, symlinks, and remote-to-remote or local-folder copies. Copy destinations must be new; recursive copies refuse symbolic links and do not overwrite. Each active session has its own SFTP channel.
+
+Windows SSH machines can launch PowerShell 7 or Windows PowerShell 5.1 in the PTY. SFTP paths on those machines accept `C:\Users\name` or `/C:/Users/name`. POSIX chmod, symlinks, and managed sudo are not offered for Windows SSH machines.
+
+## Give an agent access
+
+Open **Settings → Agents → Create agent**. Hilait creates a named identity and a unique secret token. Copy its MCP configuration into the agent's client. It runs the installed `hilait mcp` command and connects to the local server. Keep the server running while agents work.
+
+The MCP process exposes ten tools: `connections`, `request_access`, `access_status`, `release_access`, `terminal_write`, `terminal_read`, `terminal_screen`, `files`, `copy`, and `request_sudo`. The `connections` result contains only permitted display names and IDs, without usernames or hostnames. Set **Allowed connections** per agent or choose an agent restriction when editing a machine. New machines allow all registered agents by default; permission to *request* a machine is not approval to *use* it.
+
+An agent requests one machine, a detailed purpose of 80–8000 characters, and the file scope it needs: `None`, `Remote`, or `LocalTransfers`. The human reviews the agent, machine, purpose, and requested file scope. Approving opens a new SSH session; rejecting ends the request. File access cannot be silently added to an existing grant. A timed authorization covers only that agent on that specific machine with the approved file scope or less. Different machines always need separate authorization. Settings can create, extend, and revoke per-agent, per-machine authorizations. Pending requests expire after ten minutes.
+
+The owner can pause, take over, resume, or revoke agent control. A paused or revoked agent cannot send more input or file operations through Hilait. A remote command already running is not undone by revocation; interrupt it in the visible terminal if necessary. Idle agent sessions close after the machine's inactivity timeout (10 minutes by default, 0 disables it). Agents should call `release_access(closeConnection=true)` as soon as their stated purpose is complete.
+
+For Unix sudo, agents use `request_sudo(access, command, reason)`. The browser selects the affected session and shows a private human approval prompt. The agent never receives the password. Each machine can ask every time, once per connection, once per authorization period, or automatically use a saved sudo password. The managed command runs on a separate noninteractive SSH channel and does not inherit the visible terminal's working directory.
+
+## Audit and activity review
+
+Hilait encrypts audit records and links them with a SHA-256 hash chain. Records include access decisions, terminal bytes, file operations, transfer outcomes, and managed sudo outcomes. Human terminal keystrokes are redacted because they may contain passwords; SSH login and sudo passwords are never deliberately placed in audit records. The hash chain detects local record edits or reordering, not deletion by someone who controls the server account. Ended session logs can be deleted from the Logs window. Export a session as readable JSON with instructions for another AI reviewer to assess it.
+
+In **Settings → Activity review**, enter an OpenAI-compatible endpoint such as `http://localhost:11434/v1`, connect to list available models, select one, and choose **Automatic** or **On demand**. The selected model scores safety, purpose alignment, and correctness from 0 to 10, writes short rationales, and cites specific event numbers for wrong, unnecessary, problematic, or dangerous actions. The reviewer is explicitly told to treat logged content as untrusted evidence. Results appear on each session log; pending logs can be reviewed from their context menu or with **Review all pending**. Progress appears in the status bar. Scores are advisory and never change access permissions.
+
+## Storage and trust
+
+Hilait stores profiles, known host fingerprints, agent identities, authorizations, review settings, and encrypted activity in the per-user application data directory selected by `platformdirs`. `master.key` encrypts saved secrets and audit records with Fernet; on Unix its file and directory are created with owner-only permissions. Protect the account and that file together: copying the key with the data permits decryption. The admin token is in `admin.token`. Anyone who can read it can control the local web interface. Agent tokens are distinct and grant access only through an approved, named identity.
+
+The browser workspace and API are intended for a trusted local user. Remote access should go through an authenticated SSH tunnel. The server does not expose SSH passwords to agents. Purpose text is an audit commitment, not a semantic sandbox: an approved SSH account retains its normal OS privileges. Use the remote account's permissions to bound its possible effects.
+
+## Develop and test
+
+```bash
+python -m pip install -e '.[test]'
+python -m pytest
+npm ci
+npm run build
+```
+
+The test suite uses an isolated loopback SSH fixture and temporary data directories. It does not need real server credentials. The Python source lives in `src/hilait`; the browser UI and bundled terminal live in `src/hilait/static`.
+
+## License
+
+Hilait's Python and web application code is MIT licensed. The bundled xterm.js assets retain their upstream MIT licenses; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Hilait · Human in the loop AI terminal</title>
-  <link rel="icon" href="/static/logo.png">
+  <link rel="icon" href="/static/logo.png?v={{VERSION}}">
   <link rel="stylesheet" href="/static/app.css?v={{VERSION}}">
   <link rel="stylesheet" href="/static/vendor/xterm.css?v={{VERSION}}">
   <link rel="preload" href="/static/fonts/jetbrains-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -14,7 +14,7 @@
 <body>
   <div id="login" class="login-shell hidden">
     <div class="login-card">
-      <img src="/static/logo.png" alt="" width="52" height="52">
+      <img src="/static/logo.png?v={{VERSION}}" alt="" width="52" height="52">
       <h1>Hilait</h1>
       <p>Enter the admin token printed by <code>hilait serve</code>.</p>
       <label>Admin token<input id="login-token" type="password" autocomplete="off"></label>
@@ -23,9 +23,21 @@
     </div>
   </div>
 
+  <div id="otp-login" class="login-shell hidden">
+    <form id="otp-login-form" class="login-card">
+      <img src="/static/logo.png?v={{VERSION}}" alt="" width="52" height="52">
+      <h1>Authenticator code</h1>
+      <p>Enter the six-digit code from your authenticator app to open Hilait.</p>
+      <label>One-time code<input id="otp-login-code" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
+      <button type="submit" class="primary">Verify and open</button>
+      <button type="button" id="otp-back" class="otp-back">Use another admin token</button>
+      <p id="otp-login-error" class="error" role="alert"></p>
+    </form>
+  </div>
+
   <div id="workspace" class="workspace hidden">
     <aside class="machines-pane">
-      <div class="brand"><img src="/static/logo.png" alt="" width="46" height="46"><div><strong>Hilait</strong><small>HUMAN IN THE LOOP<br>AI TERMINAL</small></div></div>
+      <div class="brand"><img src="/static/logo.png?v={{VERSION}}" alt="" width="46" height="46"><div><strong>Hilait</strong><small>HUMAN IN THE LOOP<br>AI TERMINAL</small></div></div>
       <div class="icon-row">
         <button id="new-profile" class="icon" title="New connection" aria-label="New connection">＋</button>
         <button id="open-settings" class="icon" title="Settings" aria-label="Settings">⚙</button>

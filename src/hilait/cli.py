@@ -20,10 +20,18 @@ def main() -> None:
     serve.add_argument("--open", action="store_true", help="open the browser with the local admin token")
     serve.add_argument("--lan", action="store_true", help="serve HTTPS on the local network using a persistent self-signed certificate")
     sub.add_parser("mcp", help="run the personal stdio MCP bridge")
+    otp = sub.add_parser("otp", help="manage the local web authenticator")
+    otp_sub = otp.add_subparsers(dest="otp_command", required=True)
+    otp_sub.add_parser("reset", help="remove the OTP seed from this server account (stop Hilait first)")
     args = parser.parse_args()
     if args.command == "mcp":
         from .mcp_server import run
         run()
+        return
+    if args.command == "otp":
+        from .storage import Store
+        Store().write_secure("admin-otp.json", {})
+        print("OTP reset. Restart Hilait and sign in with the admin token.")
         return
     if args.host not in {"127.0.0.1", "::1", "localhost"}:
         parser.error("For network access, use --lan to enable HTTPS. --host is for loopback only.")

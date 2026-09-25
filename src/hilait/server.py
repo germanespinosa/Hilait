@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-import secrets
 import shlex
 import uuid
 from contextlib import asynccontextmanager
@@ -17,6 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .agents import AgentRuntime, ENDED, SCOPES
+from .admin_auth import AdminAuth, RateLimitError
 from .files import FileService
 from .review import Reviewer
 from .sessions import HostKeyApprovalNeeded, SessionManager
@@ -28,6 +28,7 @@ STATIC = Path(__file__).parent / "static"
 class Runtime:
     def __init__(self, root: Path | None = None) -> None:
         self.store = Store(root)
+        self.auth = AdminAuth(self.store)
         self.audit = Audit(self.store)
         self.sessions = SessionManager(self.store, self.audit)
         self.files = FileService(self.sessions, self.audit)
@@ -77,13 +78,17 @@ def create_app(root: Path | None = None) -> FastAPI:
         for session_id in list(runtime.sessions.sessions):
             await runtime.sessions.close(session_id, "Hilait stopped")
 
-    app = FastAPI(title="Hilait", version="0.1.4", lifespan=lifespan)
+    app = FastAPI(title="Hilait", version="0.1.5", lifespan=lifespan)
     app.state.runtime = runtime
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     def admin(authorization: str | None = Header(default=None)) -> None:
-        expected = "Bearer " + runtime.store.admin_token
-        if not authorization or not secrets.compare_digest(authorization, expected):
+        token = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+        if runtime.auth.valid(token):
+            return
+        if runtime.auth.enabled() and runtime.auth.is_admin_token(token):
+            raise HTTPException(403, {"code": "otp_required", "message": "Enter your authenticator code."})
+        else:
             raise HTTPException(401, "Enter the Hilait admin token to use this local server.")
 
     def agent(authorization: str | None = Header(default=None)) -> dict:
@@ -103,6 +108,10 @@ def create_app(root: Path | None = None) -> FastAPI:
     async def permission_handler(request: Request, exc: PermissionError):
         return JSONResponse(status_code=403, content={"error": str(exc)})
 
+    @app.exception_handler(RateLimitError)
+    async def otp_rate_handler(request: Request, exc: RateLimitError):
+        return JSONResponse(status_code=429, content={"error": str(exc)}, headers={"Retry-After": "300"})
+
     @app.exception_handler(KeyError)
     async def missing_handler(request: Request, exc: KeyError):
         return JSONResponse(status_code=404, content={"error": str(exc)})
@@ -119,6 +128,41 @@ def create_app(root: Path | None = None) -> FastAPI:
     @app.get("/health")
     async def health():
         return {"status": "ready"}
+
+    @app.post("/api/auth/verify")
+    async def verify_admin_otp(payload: dict, response: Response, authorization: str | None = Header(default=None)):
+        token = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+        if not runtime.auth.is_admin_token(token):
+            raise HTTPException(401, "Invalid admin token.")
+        response.headers["Cache-Control"] = "no-store"
+        return {"session": runtime.auth.verify_login(token, str(payload.get("code", "")))}
+
+    @app.get("/api/otp", dependencies=[Depends(admin)])
+    async def otp_status(response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        return runtime.auth.status()
+
+    @app.post("/api/otp/setup", dependencies=[Depends(admin)])
+    async def otp_setup(payload: dict, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        return runtime.auth.begin_setup(str(payload.get("current_code", "")))
+
+    @app.post("/api/otp/confirm", dependencies=[Depends(admin)])
+    async def otp_confirm(payload: dict, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        session = runtime.auth.confirm_setup(str(payload.get("code", "")))
+        return {"session": session}
+
+    @app.post("/api/otp/cancel", dependencies=[Depends(admin)])
+    async def otp_cancel(response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        runtime.auth.cancel_setup()
+        return runtime.auth.status()
+
+    @app.post("/api/otp/disable", dependencies=[Depends(admin)])
+    async def otp_disable(payload: dict):
+        runtime.auth.disable(str(payload.get("code", "")))
+        return {"disabled": True}
 
     @app.get("/api/state", dependencies=[Depends(admin)])
     async def state():
@@ -430,7 +474,15 @@ def create_app(root: Path | None = None) -> FastAPI:
         try:
             await websocket.send_json({"type": "state", "state": runtime.state()})
             while True:
-                await websocket.send_json(await queue.get())
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=5)
+                except asyncio.TimeoutError:
+                    item = None
+                if not _valid_socket(websocket, runtime):
+                    await websocket.close(code=4401)
+                    break
+                if item is not None:
+                    await websocket.send_json(item)
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
@@ -452,12 +504,23 @@ def create_app(root: Path | None = None) -> FastAPI:
         await websocket.send_json({"type": "output", **session.read()})
         async def outgoing():
             while True:
-                item = await queue.get()
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=5)
+                except asyncio.TimeoutError:
+                    item = None
+                if not _valid_socket(websocket, runtime):
+                    await websocket.close(code=4401)
+                    return
+                if item is None:
+                    continue
                 await websocket.send_json({"type": "output", "base64": base64.b64encode(item).decode()} if isinstance(item, bytes) else item)
         task = asyncio.create_task(outgoing())
         try:
             while True:
                 item = await websocket.receive_json()
+                if not _valid_socket(websocket, runtime):
+                    await websocket.close(code=4401)
+                    break
                 kind = item.get("type")
                 if kind == "input":
                     data = base64.b64decode(item["base64"]) if "base64" in item else item.get("text", "").encode()
@@ -481,7 +544,7 @@ def _valid_socket(websocket: WebSocket, runtime: Runtime) -> bool:
     token = websocket.query_params.get("token", "")
     origin = websocket.headers.get("origin", "")
     host = websocket.headers.get("host", "")
-    return secrets.compare_digest(token, runtime.store.admin_token) and origin in {"http://" + host, "https://" + host}
+    return runtime.auth.valid(token) and origin in {"http://" + host, "https://" + host}
 
 
 async def run_agent_tool(runtime: Runtime, identity: dict, tool: str, payload: dict) -> Any:

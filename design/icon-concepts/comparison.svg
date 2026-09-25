@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1570" height="470" viewBox="0 0 1570 470">
+<style>.heading{font:600 25px Arial,sans-serif;fill:#27343A}.sub{font:14px Arial,sans-serif;fill:#647177}.title{font:600 18px Arial,sans-serif;fill:#27343A}.note{font:13px Arial,sans-serif;fill:#647177}.num{font:600 12px Arial,sans-serif;fill:#829094}</style>
+<rect width="1570" height="470" fill="#F3F5F3"/>
+<text x="30" y="43" class="heading">Hilait — flat icon studies</text>
+<text x="30" y="66" class="sub">Same loop · prompt · human node, five quieter treatments</text>
+<g transform="translate(30 91)">
+<rect width="288" height="348" rx="18" fill="#FFFFFF" stroke="#D9DDDB"/>
+<g transform="translate(34 17) scale(.86)"><rect width="256" height="256" rx="49" fill="#142B30"/>
+<path d="M182 51 A94 94 0 1 0 214 166" fill="none" stroke="#98D6C1" stroke-width="18" stroke-linecap="round"/>
+<path d="M113 87 L158 128 L113 169" fill="none" stroke="#98D6C1" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="200" cy="72" r="11" fill="#E9B88D"/></g>
+<text x="22" y="271" class="title">Quiet Current</text>
+<text x="22" y="295" class="note">Soft loop · mint on ink</text>
+<g transform="translate(222 275) scale(.15)"><rect width="256" height="256" rx="49" fill="#142B30"/>
+<path d="M182 51 A94 94 0 1 0 214 166" fill="none" stroke="#98D6C1" stroke-width="18" stroke-linecap="round"/>
+<path d="M113 87 L158 128 L113 169" fill="none" stroke="#98D6C1" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="200" cy="72" r="11" fill="#E9B88D"/></g>
+<text x="22" y="327" class="num">01</text>
+</g><g transform="translate(334 91)">
+<rect width="288" height="348" rx="18" fill="#FFFFFF" stroke="#D9DDDB"/>
+<g transform="translate(34 17) scale(.86)"><rect width="256" height="256" rx="49" fill="#F0EDE5"/>
+<path d="M178 62 C148 43 113 42 83 57 C49 75 38 106 45 141 C53 184 89 209 129 207 C158 206 184 192 196 171" fill="none" stroke="#283940" stroke-width="14" stroke-linecap="round"/>
+<path d="M93 87 L140 128 L93 169 L93 148 L117 128 L93 108 Z" fill="#283940"/>
+<circle cx="194" cy="80" r="9" fill="#B86F52"/></g>
+<text x="22" y="271" class="title">Paper Signal</text>
+<text x="22" y="295" class="note">Fine ring · clay accent</text>
+<g transform="translate(222 275) scale(.15)"><rect width="256" height="256" rx="49" fill="#F0EDE5"/>
+<path d="M178 62 C148 43 113 42 83 57 C49 75 38 106 45 141 C53 184 89 209 129 207 C158 206 184 192 196 171" fill="none" stroke="#283940" stroke-width="14" stroke-linecap="round"/>
+<path d="M93 87 L140 128 L93 169 L93 148 L117 128 L93 108 Z" fill="#283940"/>
+<circle cx="194" cy="80" r="9" fill="#B86F52"/></g>
+<text x="22" y="327" class="num">02</text>
+</g><g transform="translate(638 91)">
+<rect width="288" height="348" rx="18" fill="#FFFFFF" stroke="#D9DDDB"/>
+<g transform="translate(34 17) scale(.86)"><rect width="256" height="256" rx="49" fill="#273C63"/>
+<path d="M169 48 C126 31 80 51 57 85 C34 119 42 166 71 194 C105 226 158 217 189 187" fill="none" stroke="#DCE8F3" stroke-width="16" stroke-linecap="round"/>
+<path d="M88 89 L134 128 L88 167" fill="none" stroke="#DCE8F3" stroke-width="19" stroke-linecap="square" stroke-linejoin="miter"/>
+<circle cx="194" cy="77" r="11" fill="#EBC17B"/></g>
+<text x="22" y="271" class="title">Cobalt Gate</text>
+<text x="22" y="295" class="note">Open orbit · amber node</text>
+<g transform="translate(222 275) scale(.15)"><rect width="256" height="256" rx="49" fill="#273C63"/>
+<path d="M169 48 C126 31 80 51 57 85 C34 119 42 166 71 194 C105 226 158 217 189 187" fill="none" stroke="#DCE8F3" stroke-width="16" stroke-linecap="round"/>
+<path d="M88 89 L134 128 L88 167" fill="none" stroke="#DCE8F3" stroke-width="19" stroke-linecap="square" stroke-linejoin="miter"/>
+<circle cx="194" cy="77" r="11" fill="#EBC17B"/></g>
+<text x="22" y="327" class="num">03</text>
+</g><g transform="translate(942 91)">
+<rect width="288" height="348" rx="18" fill="#FFFFFF" stroke="#D9DDDB"/>
+<g transform="translate(34 17) scale(.86)"><rect width="256" height="256" rx="49" fill="#DDE8DB"/>
+<path d="M171 49 H97 L52 94 V162 L97 207 H161 L202 166" fill="none" stroke="#28534C" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M94 92 L135 128 L94 164" fill="none" stroke="#28534C" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="190" cy="78" r="10" fill="#D57E64"/></g>
+<text x="22" y="271" class="title">Sage Circuit</text>
+<text x="22" y="295" class="note">Angular loop · warm dot</text>
+<g transform="translate(222 275) scale(.15)"><rect width="256" height="256" rx="49" fill="#DDE8DB"/>
+<path d="M171 49 H97 L52 94 V162 L97 207 H161 L202 166" fill="none" stroke="#28534C" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M94 92 L135 128 L94 164" fill="none" stroke="#28534C" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="190" cy="78" r="10" fill="#D57E64"/></g>
+<text x="22" y="327" class="num">04</text>
+</g><g transform="translate(1246 91)">
+<rect width="288" height="348" rx="18" fill="#FFFFFF" stroke="#D9DDDB"/>
+<g transform="translate(34 17) scale(.86)"><rect width="256" height="256" rx="49" fill="#262B2B"/>
+<path d="M178 64 A82 82 0 1 0 190 183" fill="none" stroke="#EAE7DF" stroke-width="25" stroke-linecap="butt"/>
+<path d="M91 86 L137 128 L91 170" fill="none" stroke="#EAE7DF" stroke-width="23" stroke-linecap="butt" stroke-linejoin="miter"/>
+<circle cx="194" cy="76" r="10" fill="#D76558"/></g>
+<text x="22" y="271" class="title">Carbon Mark</text>
+<text x="22" y="295" class="note">Bold cut · ivory and red</text>
+<g transform="translate(222 275) scale(.15)"><rect width="256" height="256" rx="49" fill="#262B2B"/>
+<path d="M178 64 A82 82 0 1 0 190 183" fill="none" stroke="#EAE7DF" stroke-width="25" stroke-linecap="butt"/>
+<path d="M91 86 L137 128 L91 170" fill="none" stroke="#EAE7DF" stroke-width="23" stroke-linecap="butt" stroke-linejoin="miter"/>
+<circle cx="194" cy="76" r="10" fill="#D76558"/></g>
+<text x="22" y="327" class="num">05</text>
+</g>
+</svg>

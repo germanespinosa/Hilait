@@ -10,14 +10,14 @@ class HilaitTerminal {
     this.disposed = false;
     this.opened = false;
     this.fitFrame = 0;
-    this.term = new Terminal({allowProposedApi:true,fontFamily:'"Hilait Mono", "Cascadia Mono", "SFMono-Regular", Consolas, monospace',fontSize:15,fontWeight:400,fontWeightBold:700,lineHeight:1.22,letterSpacing:0,cursorBlink:true,scrollback:20000,screenReaderMode:true,
+    this.term = new Terminal({allowProposedApi:true,fontFamily:'"Hilait Mono", "Cascadia Mono", "SFMono-Regular", Consolas, monospace',fontSize:14,fontWeight:400,fontWeightBold:700,lineHeight:1.12,letterSpacing:0,cursorBlink:true,scrollback:20000,screenReaderMode:true,
       theme:{background:'#10151e',foreground:'#d9e2f1',cursor:'#80e0c2',selectionBackground:'#345969',black:'#202b3c',red:'#f28b91',green:'#87d6b0',yellow:'#eac786',blue:'#89b4fa',magenta:'#cba6f7',cyan:'#89dceb',white:'#e2e8f0',brightBlack:'#7d8da6'}});
     this.fitAddon = new FitAddon(); this.searchAddon = new SearchAddon();
     this.term.loadAddon(this.fitAddon); this.term.loadAddon(this.searchAddon); this.term.loadAddon(new Unicode11Addon()); this.term.loadAddon(new UnicodeGraphemesAddon()); this.term.unicode.activeVersion='11';
     this.term.onData(data=>this.onInput?.(data)); this.term.onBinary(data=>this.onBinary?.(btoa(data)));
     this.term.onResize(({cols,rows})=>this.onResize?.(cols,rows));
     this.term.attachCustomKeyEventHandler(e=>this._keys(e));
-    this.ready = document.fonts.load('400 15px "Hilait Mono"').catch(()=>[]).then(()=>{
+    this.ready = document.fonts.load('400 14px "Hilait Mono"').catch(()=>[]).then(()=>{
       if(this.disposed)return;
       this.term.open(element);
       this.opened=true;

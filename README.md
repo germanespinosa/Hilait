@@ -32,11 +32,19 @@ python -m pip install git+https://github.com/germanespinosa/Hilait.git
 hilait serve --open
 ```
 
-The server binds to `127.0.0.1:8765` by default. It prints an admin token and opens the browser when `--open` is used. If the browser cannot be launched, visit `http://127.0.0.1:8765` and paste the printed token. The web workspace retains the token for that browser tab session. Hilait intentionally refuses a public bind address; use an SSH tunnel to view it from another computer.
+The server binds to `127.0.0.1:8765` by default. It prints an admin token and opens the browser when `--open` is used. If the browser cannot be launched, visit `http://127.0.0.1:8765` and paste the printed token. The web workspace retains the token for that browser tab session.
 
 ```bash
 hilait serve --port 8766
 ```
+
+To open Hilait directly from another computer on a trusted network, stop the running server and start its HTTPS LAN mode:
+
+```bash
+hilait serve --lan
+```
+
+Hilait prints one or more `https://<server-ip>:8765` addresses and a certificate fingerprint. Open the matching address from the other computer and enter the printed admin token. The first visit shows a browser warning because Hilait generates its own self-signed certificate; compare the certificate's SHA-256 fingerprint with the server output before accepting it. The certificate and private key stay in Hilait's per-user data directory so the fingerprint remains stable across restarts. Allow TCP port 8765 through the server firewall if it is blocked. `--lan` listens on all network interfaces, so use it only on a network where access is restricted to people you intend to serve. To avoid a LAN listener, keep the default mode and use an SSH tunnel instead.
 
 The package includes its terminal JavaScript and CSS. Node.js is needed only when rebuilding those assets from source.
 

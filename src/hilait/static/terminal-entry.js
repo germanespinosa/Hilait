@@ -22,7 +22,6 @@ class HilaitTerminal {
       this.term.open(element);
       this.opened=true;
       this.element.addEventListener('contextmenu',this._context=e=>{e.preventDefault();this._menu(e);});
-      this.element.addEventListener('click',this._leftPaste=e=>{if(e.button===0&&!this.term.hasSelection())this.paste();});
       this.observer=new ResizeObserver(()=>this.scheduleFit()); this.observer.observe(element);
       this.fit();
     });
@@ -48,6 +47,6 @@ class HilaitTerminal {
   write(base64){if(base64)this.term.write(Uint8Array.from(atob(base64),char=>char.charCodeAt(0)));}
   screen(){const buffer=this.term.buffer.active;return {columns:this.term.cols,rows:this.term.rows,cursorX:buffer.cursorX,cursorY:buffer.cursorY,buffer:buffer.type,
     lines:Array.from({length:this.term.rows},(_,row)=>buffer.getLine(buffer.baseY+row)?.translateToString(true)??'')};}
-  dispose(){this.disposed=true;if(this.fitFrame)cancelAnimationFrame(this.fitFrame);this.observer?.disconnect();if(this._context)this.element.removeEventListener('contextmenu',this._context);if(this._leftPaste)this.element.removeEventListener('click',this._leftPaste);this.term.dispose();}
+  dispose(){this.disposed=true;if(this.fitFrame)cancelAnimationFrame(this.fitFrame);this.observer?.disconnect();if(this._context)this.element.removeEventListener('contextmenu',this._context);this.term.dispose();}
 }
 window.HilaitTerminal=HilaitTerminal;

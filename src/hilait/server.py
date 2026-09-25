@@ -77,7 +77,7 @@ def create_app(root: Path | None = None) -> FastAPI:
         for session_id in list(runtime.sessions.sessions):
             await runtime.sessions.close(session_id, "Hilait stopped")
 
-    app = FastAPI(title="Hilait", version="0.1.3", lifespan=lifespan)
+    app = FastAPI(title="Hilait", version="0.1.4", lifespan=lifespan)
     app.state.runtime = runtime
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 

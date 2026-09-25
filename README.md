@@ -1,5 +1,7 @@
 # Hilait
 
+[![Test and package](https://github.com/germanespinosa/Hilait/actions/workflows/ci.yml/badge.svg)](https://github.com/germanespinosa/Hilait/actions/workflows/ci.yml)
+
 **A human-in-the-loop SSH workspace you can run with Python.** Hilait serves a local web interface for interactive terminals, remote files, and controlled access for AI agents. It runs on Windows, Linux, and macOS. The server owns SSH credentials; agents receive a named, limited MCP configuration and must state their purpose before requesting a machine.
 
 This is the Python and browser edition of [HilaitWin](https://github.com/germanespinosa/HilaitWin). It keeps the same connection, agent, audit, and review concepts while replacing Windows-only windows and Explorer shell integration with a browser workspace.
@@ -77,6 +79,7 @@ npm run build
 ```
 
 The test suite uses an isolated loopback SSH fixture and temporary data directories. It does not need real server credentials. The Python source lives in `src/hilait`; the browser UI and bundled terminal live in `src/hilait/static`.
+GitHub Actions runs the same tests and wheel build on Windows, Linux, and macOS with Python 3.11 and 3.12.
 
 ## License
 

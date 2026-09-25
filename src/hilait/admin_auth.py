@@ -122,9 +122,7 @@ class AdminAuth:
         self.sessions[hashlib.sha256(token.encode()).hexdigest()] = time.time() + SESSION_SECONDS
         return token
 
-    def verify_login(self, admin_token: str, code: str) -> str:
-        if not self.is_admin_token(admin_token):
-            raise PermissionError("Invalid admin token.")
+    def verify_login(self, code: str) -> str:
         with self.lock:
             settings = self._settings()
             if not settings.get("seed"):

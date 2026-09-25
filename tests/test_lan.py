@@ -2,11 +2,13 @@
 
 import hashlib
 import sys
+import time
 
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
 from hilait import cli
+from hilait.admin_auth import totp
 from hilait.server import create_app
 from hilait import tls
 
@@ -37,3 +39,20 @@ def test_lan_cli_binds_https_without_changing_admin_token(tmp_path, monkeypatch,
     assert app.state.runtime.store.admin_token in output
     assert observed["host"] == "0.0.0.0"
     assert observed["ssl_certfile"] and observed["ssl_keyfile"]
+
+
+def test_cli_opens_otp_login_without_printing_admin_token(tmp_path, monkeypatch, capsys):
+    app = create_app(tmp_path)
+    auth = app.state.runtime.auth
+    setup = auth.begin_setup()
+    auth.confirm_setup(totp(setup["secret"], time.time()))
+    monkeypatch.setattr(cli, "create_app", lambda: app)
+    opened = []
+    monkeypatch.setattr(cli.webbrowser, "open", opened.append)
+    monkeypatch.setattr(cli.uvicorn, "run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(sys, "argv", ["hilait", "serve", "--open"])
+    cli.main()
+    assert opened == ["http://127.0.0.1:8765/"]
+    output = capsys.readouterr().out
+    assert "OTP enabled" in output
+    assert app.state.runtime.store.admin_token not in output

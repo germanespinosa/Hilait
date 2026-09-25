@@ -32,7 +32,7 @@ python -m pip install git+https://github.com/germanespinosa/Hilait.git
 hilait serve --open
 ```
 
-The server binds to `127.0.0.1:8765` by default. It prints an admin token and opens the browser when `--open` is used. If the browser cannot be launched, visit `http://127.0.0.1:8765` and paste the printed token. The web workspace retains the token for that browser tab session.
+The server binds to `127.0.0.1:8765` by default. Before OTP is configured, it prints an admin token and opens the browser when `--open` is used. If the browser cannot be launched, visit `http://127.0.0.1:8765` and paste the printed token. With OTP enabled, `--open` goes directly to the authenticator screen and the server no longer prints the admin token.
 
 ```bash
 hilait serve --port 8766
@@ -44,11 +44,11 @@ To open Hilait directly from another computer on a trusted network, stop the run
 hilait serve --lan
 ```
 
-Hilait prints one or more `https://<server-ip>:8765` addresses and a certificate fingerprint. Open the matching address from the other computer and enter the printed admin token. The first visit shows a browser warning because Hilait generates its own self-signed certificate; compare the certificate's SHA-256 fingerprint with the server output before accepting it. The certificate and private key stay in Hilait's per-user data directory so the fingerprint remains stable across restarts. Allow TCP port 8765 through the server firewall if it is blocked. `--lan` listens on all network interfaces, so use it only on a network where access is restricted to people you intend to serve. To avoid a LAN listener, keep the default mode and use an SSH tunnel instead.
+Hilait prints one or more `https://<server-ip>:8765` addresses and a certificate fingerprint. Open the matching address from the other computer and enter the admin token if OTP is not configured, or the authenticator code if it is. The first visit shows a browser warning because Hilait generates its own self-signed certificate; compare the certificate's SHA-256 fingerprint with the server output before accepting it. The certificate and private key stay in Hilait's per-user data directory so the fingerprint remains stable across restarts. Allow TCP port 8765 through the server firewall if it is blocked. `--lan` listens on all network interfaces, so use it only on a network where access is restricted to people you intend to serve. To avoid a LAN listener, keep the default mode and use an SSH tunnel instead.
 
 ### Optional authenticator code
 
-Open **Settings → OTP → Generate OTP seed**, scan the QR code with Google Authenticator or another TOTP app, then enter its six-digit code to activate it. You can also enter the displayed seed manually. Until activation, the admin token opens the workspace as before. After activation, entering the admin token brings up a separate code screen; the token alone cannot use the web API or terminal WebSockets. A verified browser session lasts up to 12 hours and ends when Hilait restarts. The seed is encrypted in Hilait's data directory, and the QR code is generated locally.
+Open **Settings → OTP → Generate OTP seed**, scan the QR code with Google Authenticator or another TOTP app, then enter its six-digit code to activate it. You can also enter the displayed seed manually. Until activation, the admin token opens the workspace as before. After activation, Hilait asks only for the six-digit code; the admin token cannot use the web API or terminal WebSockets. A verified browser session lasts up to 12 hours and ends when Hilait restarts. The seed is encrypted in Hilait's data directory, and the QR code is generated locally. OTP is the sole web login factor while enabled, so keep the authenticator device and server account secure.
 
 The OTP tab can replace or disable the authenticator with a current code. If the authenticator is lost, stop Hilait and run `hilait otp reset` as the same server account, then restart and sign in with the admin token. Anyone who can run that command as the server account can also read Hilait's local secrets, so protect that account. Agent tokens and their access workflow are separate from the human OTP login.
 
@@ -86,7 +86,7 @@ In **Settings → Activity review**, enter an OpenAI-compatible endpoint such as
 
 ## Storage and trust
 
-Hilait stores profiles, known host fingerprints, agent identities, authorizations, review settings, and encrypted activity in the per-user application data directory selected by `platformdirs`. `master.key` encrypts saved secrets, OTP seed, and audit records with Fernet; on Unix its file and directory are created with owner-only permissions. Protect the account and that file together: copying the key with the data permits decryption. The admin token is in `admin.token`; keep it private. With OTP enabled, the admin token also needs a current authenticator code for web access. Agent tokens are distinct and grant access only through an approved, named identity.
+Hilait stores profiles, known host fingerprints, agent identities, authorizations, review settings, and encrypted activity in the per-user application data directory selected by `platformdirs`. `master.key` encrypts saved secrets, OTP seed, and audit records with Fernet; on Unix its file and directory are created with owner-only permissions. Protect the account and that file together: copying the key with the data permits decryption. The admin token is in `admin.token`; keep it private for use if OTP is reset. While OTP is enabled, it is not accepted for web access. Agent tokens are distinct and grant access only through an approved, named identity.
 
 The browser workspace and API are intended for a trusted local user or a restricted LAN over Hilait's HTTPS mode. An authenticated SSH tunnel is another remote-access option. The server does not expose SSH passwords to agents. Purpose text is an audit commitment, not a semantic sandbox: an approved SSH account retains its normal OS privileges. Use the remote account's permissions to bound its possible effects.
 

@@ -78,7 +78,7 @@ def create_app(root: Path | None = None) -> FastAPI:
         for session_id in list(runtime.sessions.sessions):
             await runtime.sessions.close(session_id, "Hilait stopped")
 
-    app = FastAPI(title="Hilait", version="0.1.5", lifespan=lifespan)
+    app = FastAPI(title="Hilait", version="0.1.6", lifespan=lifespan)
     app.state.runtime = runtime
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
@@ -129,13 +129,15 @@ def create_app(root: Path | None = None) -> FastAPI:
     async def health():
         return {"status": "ready"}
 
-    @app.post("/api/auth/verify")
-    async def verify_admin_otp(payload: dict, response: Response, authorization: str | None = Header(default=None)):
-        token = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
-        if not runtime.auth.is_admin_token(token):
-            raise HTTPException(401, "Invalid admin token.")
+    @app.get("/api/auth/mode")
+    async def auth_mode(response: Response):
         response.headers["Cache-Control"] = "no-store"
-        return {"session": runtime.auth.verify_login(token, str(payload.get("code", "")))}
+        return {"otp_enabled": runtime.auth.enabled()}
+
+    @app.post("/api/auth/verify")
+    async def verify_admin_otp(payload: dict, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        return {"session": runtime.auth.verify_login(str(payload.get("code", "")))}
 
     @app.get("/api/otp", dependencies=[Depends(admin)])
     async def otp_status(response: Response):

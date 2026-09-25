@@ -50,13 +50,6 @@
   scrollbar-width: thin;
 }
 
-.otp-back {
-  background: transparent;
-  border: 0;
-  color: var(--muted);
-  padding: 7px;
-}
-.otp-back:hover { background: transparent; color: var(--text); }
 .otp-panel { max-width: 800px; }
 .otp-panel label { display: block; margin-top: 16px; }
 .otp-panel label input { display: block; max-width: 220px; margin-top: 6px; }

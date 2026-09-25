@@ -27,6 +27,7 @@ async def test_optional_otp_setup_login_and_disable(tmp_path, monkeypatch):
     runtime = app.state.runtime
     admin = {"Authorization": "Bearer " + runtime.store.admin_token}
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
+        assert (await client.get("/api/auth/mode")).json() == {"otp_enabled": False}
         assert (await client.get("/api/state", headers=admin)).status_code == 200
         assert (await client.get("/api/otp", headers=admin)).json() == {"enabled": False, "pending": False}
         setup_response = await client.post("/api/otp/setup", headers=admin, json={})
@@ -40,16 +41,17 @@ async def test_optional_otp_setup_login_and_disable(tmp_path, monkeypatch):
         confirmed = await client.post("/api/otp/confirm", headers=admin, json={"code": code})
         assert confirmed.status_code == 200, confirmed.text
         session = confirmed.json()["session"]
+        assert (await client.get("/api/auth/mode")).json() == {"otp_enabled": True}
         verified = {"Authorization": "Bearer " + session}
         assert (await client.get("/api/state", headers=verified)).status_code == 200
         denied = await client.get("/api/state", headers=admin)
         assert denied.status_code == 403 and denied.json()["detail"]["code"] == "otp_required"
-        assert (await client.post("/api/auth/verify", headers=admin, json={"code": code})).status_code == 400
-        assert (await client.post("/api/auth/verify", headers=verified, json={"code": code})).status_code == 401
+        assert (await client.post("/api/auth/verify", json={"code": code})).status_code == 400
         clock[0] += 31
         new_code = totp(setup["secret"], clock[0])
-        logged_in = await client.post("/api/auth/verify", headers=admin, json={"code": new_code})
+        logged_in = await client.post("/api/auth/verify", json={"code": new_code})
         assert logged_in.status_code == 200
+        assert (await client.get("/api/state", headers={"Authorization": "Bearer " + logged_in.json()["session"]})).status_code == 200
         clock[0] += 31
         off_code = totp(setup["secret"], clock[0])
         disabled = await client.post("/api/otp/disable", headers=verified, json={"code": off_code})
@@ -75,9 +77,9 @@ def test_otp_blocks_raw_token_websockets_and_rate_limits(tmp_path, monkeypatch):
             assert ws.receive_json()["type"] == "state"
     for _ in range(5):
         with pytest.raises(ValueError):
-            auth.verify_login(admin_token, "invalid")
+            auth.verify_login("invalid")
     with pytest.raises(RateLimitError):
-        auth.verify_login(admin_token, "invalid")
+        auth.verify_login("invalid")
 
 
 def test_replacing_seed_keeps_old_factor_until_confirmed(tmp_path, monkeypatch):

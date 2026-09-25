@@ -17,7 +17,7 @@ def main() -> None:
     serve = sub.add_parser("serve", help="start the local web interface")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
-    serve.add_argument("--open", action="store_true", help="open the browser with the local admin token")
+    serve.add_argument("--open", action="store_true", help="open the browser at the local login screen")
     serve.add_argument("--lan", action="store_true", help="serve HTTPS on the local network using a persistent self-signed certificate")
     sub.add_parser("mcp", help="run the personal stdio MCP bridge")
     otp = sub.add_parser("otp", help="manage the local web authenticator")
@@ -51,8 +51,12 @@ def main() -> None:
         print(f"Self-signed certificate SHA-256: {fingerprint}", flush=True)
     else:
         print(f"Hilait: {url}", flush=True)
-    print(f"Admin token: {app.state.runtime.store.admin_token}", flush=True)
+    otp_enabled = app.state.runtime.auth.enabled()
+    if otp_enabled:
+        print("OTP enabled: open Hilait and enter your authenticator code.", flush=True)
+    else:
+        print(f"Admin token: {app.state.runtime.store.admin_token}", flush=True)
     if args.open:
-        webbrowser.open(url + "/#token=" + app.state.runtime.store.admin_token)
+        webbrowser.open(url + ("/" if otp_enabled else "/#token=" + app.state.runtime.store.admin_token))
     uvicorn.run(app, host="0.0.0.0" if args.lan else args.host, port=args.port,
                 log_level="info", **uvicorn_options)

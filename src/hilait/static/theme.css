@@ -22,7 +22,7 @@
   --danger-soft: #452c2e;
   --focus: #b5f5d7;
   --shadow: 0 18px 50px #0007;
-  --terminal-bg: #101a1c;
+  --terminal-bg: #000000;
   --terminal-fg: #e2eee8;
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
@@ -53,8 +53,8 @@
   --danger-soft: #fae5e5;
   --focus: #135d9a;
   --shadow: 0 18px 50px #233c2925;
-  --terminal-bg: #f9fcfa;
-  --terminal-fg: #1b3027;
+  --terminal-bg: #000000;
+  --terminal-fg: #e8f0ec;
 }
 
 .theme-toggle svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

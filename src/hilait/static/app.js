@@ -120,7 +120,71 @@
     else if(tab==='authorizations'){box.innerHTML=`<button id="add-authorization" class="primary">＋ New authorization</button>${state.authorizations.map(a=>`<div class="setting-row"><strong>${escaped(state.agents.find(x=>x.id===a.agent_id)?.name||a.agent_id)} · ${escaped(a.connection)}</strong><small>${a.revoked?'Revoked':new Date(a.expires_utc)<new Date()?'Expired':'Until '+new Date(a.expires_utc).toLocaleString()} · ${escaped(a.file_access)}</small><div class="actions"><button data-extend="${escaped(a.id)}">Extend</button><button data-revoke="${escaped(a.id)}">Revoke</button></div></div>`).join('')}`; $('#add-authorization').onclick=authorizationDialog; box.onclick=e=>{const id=e.target.dataset.extend||e.target.dataset.revoke;if(!id)return;if(e.target.dataset.extend){const hours=Number(prompt('Add how many hours?','1'));if(hours>0)action(async()=>{await api(`/api/authorizations/${id}/extend`,'POST',{hours});settings('authorizations');});}else if(confirm('Revoke this authorization and active agent access?'))action(async()=>{await api(`/api/authorizations/${id}/revoke`,'POST',{});settings('authorizations');});};}
     else if(tab==='otp'){otpSettings();}
     else if(tab==='notifications'){notificationSettings();}
-    else {const saved=state.reviewSettings; box.innerHTML=`<p>Review agent activity with an Ollama or OpenAI-compatible model.</p><form id="review-form" class="form-grid">${field('Server URL','endpoint',saved.endpoint||'http://localhost:11434/v1')}<label>Model<select name="model" id="review-model"></select></label><label>Review mode<select name="mode"><option value="on_demand">On demand</option><option value="automatic">Automatic</option></select></label>${field('API key (optional)','api_key','','password')}<div class="actions full"><button type="button" id="connect-models">Connect</button><button type="submit" class="primary">Save settings</button></div></form>`; const form=$('#review-form');form.mode.value=saved.mode;$('#connect-models').onclick=()=>action(async()=>{const found=await api('/api/review/models','POST',{endpoint:form.endpoint.value,api_key:form.api_key.value});const select=$('#review-model');select.innerHTML='';for(const name of found.models){const option=document.createElement('option');option.value=option.textContent=name;select.appendChild(option);}if(found.models.includes(saved.model))select.value=saved.model;toast(`${found.models.length} models loaded`);});form.endpoint.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#connect-models').click();}};form.onsubmit=e=>{e.preventDefault();action(async()=>{await api('/api/review/settings','POST',{...formData(form),model:form.model.value||saved.model});closeModal();toast('Review settings saved');});};}
+    else {reviewSettings();}
+  }
+  function reviewSettings(){
+    const saved=state.reviewSettings;
+    const defaults={local:'http://localhost:11434/v1',openai:'https://api.openai.com/v1',anthropic:'https://api.anthropic.com/v1',grok:'https://api.x.ai/v1'};
+    const alertRow=(axis,label)=>`<label>${label}<select name="alert_${axis}"><option value="">Off</option>${Array.from({length:11},(_,score)=>`<option value="${score}">At or below ${score}/10</option>`).join('')}</select></label>`;
+    const box=$('#settings-content');
+    box.innerHTML=`<form id="review-form">
+      <h3 class="settings-heading">Model connection</h3>
+      <div class="form-grid">
+        <label>Provider<select name="provider"><option value="local">Local / Ollama</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="grok">Grok (xAI)</option></select></label>
+        ${field('Server URL','endpoint',saved.endpoint||defaults[saved.provider||'local'],'url','autocomplete="url"')}
+        ${field(saved.has_api_key?'API key (saved; leave blank to keep)':'API key','api_key','','password','autocomplete="new-password"')}
+        <label>Model<select name="model" id="review-model" disabled></select></label>
+      </div>
+      <div class="actions review-connect"><button type="button" id="connect-models">Connect and load models</button></div>
+      <h3>Review</h3>
+      <div class="form-grid">
+        <label>Depth<select name="review_level"><option value="light">Light · instructions only</option><option value="deep">Deep · instructions and outputs</option></select></label>
+        <label>Frequency<select name="mode"><option value="on_demand">On demand</option><option value="automatic">Automatic</option></select></label>
+      </div>
+      <p class="setting-hint" id="review-depth-hint"></p>
+      <h3>Score alerts</h3>
+      <p class="setting-hint">Send an ntfy alert when a score meets a threshold. Configure the server and topic in Notifications. Alerts include a brief model summary.</p>
+      <div class="form-grid">${alertRow('safety','Safety')}${alertRow('purpose_alignment','Purpose alignment')}${alertRow('correctness','Correctness')}</div>
+      <div class="actions"><button type="submit" class="primary">Save settings</button></div>
+    </form>`;
+    const form=$('#review-form');
+    form.provider.value=saved.provider||'local';
+    form.review_level.value=saved.review_level||'deep';
+    form.mode.value=saved.mode||'on_demand';
+    for(const axis of ['safety','purpose_alignment','correctness'])form['alert_'+axis].value=saved.alert_thresholds?.[axis]??'';
+    const model=$('#review-model');
+    const sameConnection=()=>form.provider.value===(saved.provider||'local')&&form.endpoint.value===(saved.endpoint||defaults[saved.provider||'local']);
+    const updateKeyLabel=()=>{form.api_key.closest('label').firstChild.textContent=sameConnection()&&saved.has_api_key?'API key (saved; leave blank to keep)':'API key';};
+    const updateDepth=()=>{
+      const light=form.review_level.value==='light';
+      form.alert_correctness.disabled=light;
+      $('#review-depth-hint').textContent=light
+        ? 'Sends only the reason for request and agent instructions. Correctness is not scored.'
+        : 'Also sends terminal output and file-operation results to the selected model. Output may contain sensitive data.';
+    };
+    updateDepth();
+    form.review_level.onchange=updateDepth;
+    form.provider.onchange=()=>{form.endpoint.value=defaults[form.provider.value];form.api_key.value='';updateKeyLabel();model.replaceChildren();model.disabled=true;};
+    form.endpoint.onchange=()=>{updateKeyLabel();model.replaceChildren();model.disabled=true;};
+    $('#connect-models').onclick=async()=>{
+      try{
+        const found=await api('/api/review/models','POST',{provider:form.provider.value,endpoint:form.endpoint.value,api_key:form.api_key.value});
+        model.replaceChildren();
+        for(const name of found.models){const option=document.createElement('option');option.value=option.textContent=name;model.appendChild(option);}
+        model.disabled=!found.models.length;
+        if(sameConnection()&&found.models.includes(saved.model))model.value=saved.model;
+        toast(found.models.length?`${found.models.length} models loaded`:'No models returned by this server',!found.models.length);
+      }catch(error){toast(error.message,true);}
+    };
+    form.endpoint.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#connect-models').click();}};
+    form.onsubmit=e=>{e.preventDefault();action(async()=>{
+      const chosen=model.value||(sameConnection()?saved.model:'');
+      if(!chosen)throw new Error('Connect and select a model first.');
+      const thresholds=Object.fromEntries(['safety','purpose_alignment','correctness'].map(axis=>[axis,form['alert_'+axis].value||null]));
+      await api('/api/review/settings','POST',{provider:form.provider.value,endpoint:form.endpoint.value,api_key:form.api_key.value,
+        model:chosen,mode:form.mode.value,review_level:form.review_level.value,alert_thresholds:thresholds});
+      closeModal();toast('Review settings saved');
+    });};
   }
   function appearanceSettings(){
     const choice=window.HilaitTheme.preference, terminal=window.HilaitTerminalAppearance;
@@ -136,7 +200,7 @@
     const box=$('#settings-content');box.innerHTML='<p>Loading notification settings…</p>';
     let saved;try{saved=await api('/api/notifications/ntfy');}catch(error){box.innerHTML=`<p class="error">${escaped(error.message)}</p>`;return;}
     if(!box.isConnected||!$('#modal .settings-nav button[data-tab="notifications"]')?.classList.contains('active'))return;
-    box.innerHTML=`<p>Send each pending agent connection request to your phone. Notification buttons open a Hilait page where you confirm the decision.</p><form id="ntfy-form"><label class="setting-row toggle">Enable ntfy notifications<input name="enabled" type="checkbox" ${saved.enabled?'checked':''}></label><div class="form-grid">${field('ntfy server URL','server_url',saved.server_url,'url','placeholder="https://ntfy.sh"')}${field('Topic','topic',saved.topic,'text','autocomplete="off"')}${field('Hilait URL reachable from your phone','hilait_url',saved.hilait_url,'url','class="full" placeholder="https://hilait.example"')}${field(saved.has_token?'ntfy access token (leave blank to keep saved token)':'ntfy access token (if required)','token','','password','autocomplete="new-password"')}<label class="toggle">Remove saved ntfy token<input name="clear_token" type="checkbox"></label></div><p class="setting-hint">Use a private topic. Notifications include the agent, machine, file scope and a short purpose preview. Your phone must be able to reach the Hilait URL over HTTPS. Save before sending a test.</p><div class="actions"><button type="button" id="ntfy-test">Send test</button><button type="submit" class="primary">Save settings</button></div></form>`;
+    box.innerHTML=`<p>ntfy can notify you about access requests and low review scores. Score thresholds are set in Activity review.</p><form id="ntfy-form"><label class="setting-row toggle">Notify about access requests<input name="enabled" type="checkbox" ${saved.enabled?'checked':''}></label><div class="form-grid">${field('ntfy server URL','server_url',saved.server_url,'url','placeholder="https://ntfy.sh"')}${field('Topic','topic',saved.topic,'text','autocomplete="off"')}${field('Hilait URL reachable from your phone','hilait_url',saved.hilait_url,'url','class="full" placeholder="https://hilait.example"')}${field(saved.has_token?'ntfy access token (leave blank to keep saved token)':'ntfy access token (if required)','token','','password','autocomplete="new-password"')}<label class="toggle">Remove saved ntfy token<input name="clear_token" type="checkbox"></label></div><p class="setting-hint">Use a private topic. Access request notifications include the agent, machine, file scope and a short purpose preview. Review alerts include scores and a short summary. Your phone must be able to reach the Hilait URL over HTTPS. Save before sending a test.</p><div class="actions"><button type="button" id="ntfy-test">Send test</button><button type="submit" class="primary">Save settings</button></div></form>`;
     const form=$('#ntfy-form');form.onsubmit=async e=>{e.preventDefault();try{await api('/api/notifications/ntfy','PUT',{...formData(form),enabled:form.enabled.checked,clear_token:form.clear_token.checked});toast('Notification settings saved');await notificationSettings();}catch(error){toast(error.message,true);}};
     $('#ntfy-test').onclick=async()=>{try{await api('/api/notifications/ntfy/test','POST',{});toast('Test notification sent');}catch(error){toast(error.message,true);}};
   }
@@ -168,20 +232,42 @@
 
   async function showLogs(){
     const logs=await api('/api/logs');
-    const pending=logs.some(log=>!log.review);
+    const pending=logs.some(log=>log.needsReview);
     openModal(head('Agent session logs')+`${pending?'<div class="actions"><button id="review-all" class="primary">Review all pending</button></div>':''}<div id="logs-list"></div>`);
     if(pending)$('#review-all').onclick=()=>action(async()=>{await api('/api/review-all','POST',{});toast('Pending reviews started');});
     if(!logs.length){$('#logs-list').innerHTML='<p class="empty-message">No agent sessions recorded yet.</p>';return;}
     for(const log of logs){
       const row=document.createElement('div');row.className='log-row';row.tabIndex=0;row.setAttribute('role','button');
-      row.innerHTML=`<strong>${escaped(log.agent||'Agent')} · ${escaped(log.connection||'Connection')}</strong><small>${escaped(log.purpose||'')} · ${new Date(log.lastUtc).toLocaleString()}</small><div class="scores">${['safety','purpose_alignment','correctness'].map(axis=>{const score=log.review?.[axis];return `<span class="score ${score==null?'':score<4?'low':score<7?'mid':'high'}">${escaped(axis.replace('_',' '))} ${score??'—'}</span>`;}).join('')}</div>`;
+      row.innerHTML=`<strong>${escaped(log.agent||'Agent')} · ${escaped(log.connection||'Connection')}</strong><small>${escaped(log.purpose||'')} · ${new Date(log.lastUtc).toLocaleString()}${log.review?' · '+escaped(log.review.level||'Deep')+' review':''}</small><div class="scores">${['safety','purpose_alignment','correctness'].map(axis=>{const score=log.review?.[axis];return `<span class="score ${score==null?'':score<4?'low':score<7?'mid':'high'}">${escaped(axis.replace('_',' '))} ${score??'—'}</span>`;}).join('')}</div>${log.review?.summary?`<p class="review-summary">${escaped(log.review.summary)}</p>`:''}`;
       row.onclick=()=>showLogDetail(log.grant);
       row.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();showLogDetail(log.grant);}};
-      row.oncontextmenu=e=>{e.preventDefault();menu([...(log.review?[]:[["Review session",()=>reviewSession(log.grant)]]),["Export for analysis",()=>exportLog(log.grant)],["Delete log",()=>deleteLog(log.grant)]],e.clientX,e.clientY);};
+      row.oncontextmenu=e=>{e.preventDefault();menu([...(log.needsReview?[[`Run ${state.reviewSettings.review_level||'deep'} review`,()=>reviewSession(log.grant)]]:[]),["Export for analysis",()=>exportLog(log.grant)],["Delete log",()=>deleteLog(log.grant)]],e.clientX,e.clientY);};
       $('#logs-list').appendChild(row);
     }
   }
-  async function showLogDetail(grantId,tab='activity'){const detail=await api(`/api/logs/${grantId}`);openModal(head('Agent session','Review the stated purpose and exact recorded events.')+`<nav class="modal-tabs"><button data-tab="activity">Activity</button>${detail.review?'<button data-tab="review">Review</button>':''}</nav><div id="log-detail"></div>`);const paint=which=>{const box=$('#log-detail');$('#modal .modal-tabs').querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.tab===which));if(which==='review'){const r=detail.review;box.innerHTML=`<div class="scores">${['safety','purpose_alignment','correctness'].map(axis=>`<span class="score ${r[axis]<4?'low':r[axis]<7?'mid':'high'}">${escaped(axis.replace('_',' '))} ${r[axis]}/10</span>`).join('')}</div>${Object.entries(r.rationale).map(([axis,text])=>`<div class="setting-row"><strong>${escaped(axis.replace('_',' '))}</strong><p>${escaped(text)}</p></div>`).join('')}<h3>Flagged events</h3>${r.findings.map(f=>`<div class="setting-row"><strong>#${f.sequence} · ${escaped(f.label)}</strong><p>${escaped(f.rationale)}</p></div>`).join('')||'<p>No specific events flagged.</p>'}`;}else{box.innerHTML=`<div class="setting-row"><strong>Reason for request</strong><p>${escaped(detail.events.find(e=>e.context?.purpose)?.context.purpose||'')}</p></div><div class="code">${escaped(detail.events.map(e=>`[${e.utc} #${e.sequence}] ${e.kind}\n${JSON.stringify(e.data,null,2)}`).join('\n\n'))}</div><p id="review-progress">${escaped(detail.progress||'')}</p>`;}};$('#modal .modal-tabs').onclick=e=>{if(e.target.dataset.tab)paint(e.target.dataset.tab);};paint(tab);}
+  async function showLogDetail(grantId, tab='activity'){
+    const detail=await api(`/api/logs/${grantId}`);
+    openModal(head('Agent session','Review the stated purpose and recorded activity.')+
+      `<nav class="modal-tabs"><button data-tab="activity">Activity</button>${detail.review?'<button data-tab="review">Review</button>':''}</nav><div id="log-detail"></div>`);
+    const paint=which=>{
+      const box=$('#log-detail');
+      $('#modal .modal-tabs').querySelectorAll('button').forEach(button=>button.classList.toggle('active',button.dataset.tab===which));
+      if(which==='review'){
+        const review=detail.review;
+        const axes=['safety','purpose_alignment','correctness'].filter(axis=>review[axis]!=null);
+        const scores=axes.map(axis=>`<span class="score ${review[axis]<4?'low':review[axis]<7?'mid':'high'}">${escaped(axis.replace('_',' '))} ${review[axis]}/10</span>`).join('');
+        const rationales=axes.map(axis=>`<div class="setting-row"><strong>${escaped(axis.replace('_',' '))}</strong><p>${escaped(review.rationale?.[axis]||'')}</p></div>`).join('');
+        const findings=(review.findings||[]).map(finding=>`<div class="setting-row"><strong>#${finding.sequence} · ${escaped(finding.label)}</strong><p>${escaped(finding.rationale)}</p></div>`).join('')||'<p>No specific events flagged.</p>';
+        box.innerHTML=`<small class="review-meta">${escaped((review.level||'deep').toUpperCase())} REVIEW · ${escaped(review.provider||'Local')} · ${escaped(review.model||'')}</small><div class="scores">${scores}${review.correctness==null?'<span class="score">Correctness not scored</span>':''}</div>${review.summary?`<div class="setting-row review-overview"><strong>Summary</strong><p>${escaped(review.summary)}</p></div>`:''}${rationales}<h3>Flagged events</h3>${findings}`;
+      }else{
+        const reason=detail.events.find(event=>event.context?.purpose)?.context.purpose||'';
+        const events=detail.events.map(event=>`[${event.utc} #${event.sequence}] ${event.kind}\n${JSON.stringify(event.data,null,2)}`).join('\n\n');
+        box.innerHTML=`<div class="setting-row"><strong>Reason for request</strong><p>${escaped(reason)}</p></div><div class="code">${escaped(events)}</div><p id="review-progress">${escaped(detail.progress||'')}</p>`;
+      }
+    };
+    $('#modal .modal-tabs').onclick=event=>{if(event.target.dataset.tab)paint(event.target.dataset.tab);};
+    paint(tab);
+  }
   async function reviewSession(id){closeModal();status('Reviewing session…');try{await api(`/api/review/${id}`,'POST',{});await showLogDetail(id,'review');status('Review complete');}catch(error){status('Review failed: '+error.message);toast(error.message,true);}}
   async function exportLog(id){const response=await fetch(`/api/logs/${id}/export`,{headers:{Authorization:'Bearer '+token}});if(!response.ok){toast('Export failed',true);return;}const blob=await response.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`hilait-${id}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);}
   function deleteLog(id){if(!confirm('Permanently delete this ended session log? Its recorded evidence and review will be removed.'))return;action(async()=>{await api(`/api/logs/${id}`,'DELETE');await showLogs();});}

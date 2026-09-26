@@ -19,7 +19,7 @@ from .agents import AgentRuntime, ENDED, SCOPES
 from .admin_auth import AdminAuth, RateLimitError
 from .files import FileService
 from .ntfy import NtfyNotifier
-from .review import Reviewer
+from .review import ENDPOINTS, Reviewer
 from .sessions import HostKeyApprovalNeeded, SessionManager
 from .storage import Audit, Store
 
@@ -71,8 +71,7 @@ def create_app(root: Path | None = None) -> FastAPI:
                     continue
                 for grant_id in runtime.reviewer.pending():
                     try:
-                        await runtime.reviewer.review(grant_id, lambda message: runtime.agents._notify(
-                            {"type": "review_progress", "grant": grant_id, "message": message}))
+                        await run_review(grant_id)
                     except Exception as exc:
                         runtime.reviewer.progress[grant_id] = "Review failed: " + str(exc)
         reviews = asyncio.create_task(automatic_reviews())
@@ -82,9 +81,19 @@ def create_app(root: Path | None = None) -> FastAPI:
         for session_id in list(runtime.sessions.sessions):
             await runtime.sessions.close(session_id, "Hilait stopped")
 
-    app = FastAPI(title="Hilait", version="0.1.14", lifespan=lifespan)
+    app = FastAPI(title="Hilait", version="0.1.15", lifespan=lifespan)
     app.state.runtime = runtime
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    review_runs: dict[str, asyncio.Lock] = {}
+
+    async def run_review(grant_id: str) -> dict:
+        async with review_runs.setdefault(grant_id, asyncio.Lock()):
+            previous = runtime.reviewer.results().get(grant_id)
+            result = await runtime.reviewer.review(grant_id, lambda message: runtime.agents._notify(
+                {"type": "review_progress", "grant": grant_id, "message": message}))
+            if not previous or previous.get("reviewed_utc") != result["reviewed_utc"]:
+                await runtime.ntfy.notify_review(grant_id, result, runtime.reviewer.settings()["alert_thresholds"])
+            return result
 
     def admin(authorization: str | None = Header(default=None)) -> None:
         token = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
@@ -428,6 +437,8 @@ def create_app(root: Path | None = None) -> FastAPI:
     @app.get("/api/logs", dependencies=[Depends(admin)])
     async def logs():
         contexts: dict[str, dict] = {}
+        results = runtime.reviewer.results()
+        pending = set(runtime.reviewer.pending())
         for record in runtime.audit.records():
             context = record.get("context") or {}
             grant = context.get("grant")
@@ -435,7 +446,7 @@ def create_app(root: Path | None = None) -> FastAPI:
                 contexts[grant] = {"grant": grant, "agent": context.get("agent"),
                                    "agentId": context.get("agentId"), "connection": context.get("connection"),
                                    "purpose": context.get("purpose"), "lastUtc": record["utc"],
-                                   "review": runtime.reviewer.results().get(grant)}
+                                   "review": results.get(grant), "needsReview": grant in pending}
         return sorted(contexts.values(), key=lambda item: item["lastUtc"], reverse=True)
 
     @app.get("/api/logs/{grant_id}", dependencies=[Depends(admin)])
@@ -454,6 +465,9 @@ def create_app(root: Path | None = None) -> FastAPI:
         reviews = runtime.reviewer.results()
         reviews.pop(grant_id, None)
         runtime.store.write_secure("reviews.enc", reviews)
+        alerts = runtime.store.read_secure("review-alerts.enc", {})
+        alerts.pop(grant_id, None)
+        runtime.store.write_secure("review-alerts.enc", alerts)
         return {"deleted": grant_id}
 
     @app.get("/api/logs/{grant_id}/export", dependencies=[Depends(admin)])
@@ -473,21 +487,22 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @app.post("/api/review/models", dependencies=[Depends(admin)])
     async def review_models(payload: dict):
-        return {"models": await runtime.reviewer.models(payload["endpoint"], payload.get("api_key", ""))}
+        saved = runtime.reviewer.settings()
+        same_connection = payload.get("provider", "local") == saved["provider"] and payload.get("endpoint", "").rstrip("/") == (saved["endpoint"] or ENDPOINTS[saved["provider"]])
+        key = payload.get("api_key") or (runtime.store.decrypt(saved.get("api_key")) if same_connection else "")
+        return {"models": await runtime.reviewer.models(payload.get("endpoint", ""), key,
+                                                        payload.get("provider", "local"))}
 
     @app.post("/api/review/{grant_id}", dependencies=[Depends(admin)])
     async def review_one(grant_id: str):
-        result = await runtime.reviewer.review(grant_id, lambda message: runtime.agents._notify(
-            {"type": "review_progress", "grant": grant_id, "message": message}))
-        return result
+        return await run_review(grant_id)
 
     @app.post("/api/review-all", dependencies=[Depends(admin)])
     async def review_all():
         async def task():
             for grant_id in runtime.reviewer.pending():
                 try:
-                    await runtime.reviewer.review(grant_id, lambda message: runtime.agents._notify(
-                        {"type": "review_progress", "grant": grant_id, "message": message}))
+                    await run_review(grant_id)
                 except Exception as exc:
                     runtime.reviewer.progress[grant_id] = "Review failed: " + str(exc)
         asyncio.create_task(task())

@@ -141,6 +141,10 @@ a { color: var(--accent); }
 .context-menu button { display: block; width: 100%; min-height: 35px; text-align: left; background: transparent; border-color: transparent; }
 .context-menu button:hover { background: var(--button); }
 .setting-hint { font-size: 12px; }
+.review-connect { margin-top: 10px; }
+.review-meta { color: var(--muted); font-size: 11px; letter-spacing: .03em; }
+.review-overview { margin-top: 16px; }
+.review-summary { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .empty-message { margin: 0; padding: 18px 2px 4px; color: var(--muted); }
 
 .login-shell { display: grid; place-items: center; min-height: 100dvh; padding: 20px; }

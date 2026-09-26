@@ -94,3 +94,32 @@ class NtfyNotifier:
         except (httpx.HTTPError, ValueError) as exc:
             self.audit.write("notification_failed", grant.context(),
                              {"channel": "ntfy", "error": type(exc).__name__})
+
+    async def notify_review(self, grant_id: str, result: dict, thresholds: dict) -> bool:
+        alerted = self.store.read_secure("review-alerts.enc", {})
+        previous = alerted.get(grant_id, {})
+        matched = {axis: result[axis] for axis, limit in thresholds.items()
+                   if limit is not None and isinstance(result.get(axis), int) and result[axis] <= limit and
+                   (axis not in previous or result[axis] < previous[axis])}
+        if not matched:
+            return False
+        config = self.settings()
+        records = self.audit.session(grant_id)
+        context = next((record.get("context", {}) for record in records if record.get("context", {}).get("agent")), {"grant": grant_id})
+        if not all(config.get(key) for key in ("server_url", "topic", "hilait_url")):
+            self.audit.write("notification_failed", context, {"channel": "ntfy", "kind": "review", "reason": "not_configured"})
+            return False
+        scores = ", ".join(f"{axis.replace('_', ' ')} {score}/10" for axis, score in matched.items())
+        payload = {"topic": config["topic"], "title": f"Hilait review: {context.get('agent', 'Agent')} · {context.get('connection', 'Machine')}",
+                   "message": f"{scores}\n{result['summary'][:300]}", "priority": 4,
+                   "actions": [{"action": "view", "label": "Open Hilait", "url": config["hilait_url"] + "/"}]}
+        try:
+            await self._post(config, payload)
+            alerted[grant_id] = {**previous, **matched}
+            self.store.write_secure("review-alerts.enc", alerted)
+            self.audit.write("notification_sent", context, {"channel": "ntfy", "kind": "review", "scores": matched})
+            return True
+        except (httpx.HTTPError, ValueError) as exc:
+            self.audit.write("notification_failed", context,
+                             {"channel": "ntfy", "kind": "review", "error": type(exc).__name__})
+            return False

@@ -15,7 +15,7 @@ CONCEPTS = [
         """<rect width="256" height="256" rx="49" fill="#142B30"/>
 <path d="M182 51 A94 94 0 1 0 214 166" fill="none" stroke="#98D6C1" stroke-width="18" stroke-linecap="round"/>
 <path d="M113 87 L158 128 L113 169" fill="none" stroke="#98D6C1" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
-<circle cx="200" cy="72" r="11" fill="#E9B88D"/>""",
+<circle cx="219" cy="103" r="16" fill="#E9B88D"/>""",
     ),
     (
         "02-paper-signal",

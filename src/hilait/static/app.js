@@ -122,11 +122,13 @@
   }
   function appearanceSettings(){
     const choice=window.HilaitTheme.preference, terminal=window.HilaitTerminalAppearance;
-    $('#settings-content').innerHTML=`<h3 class="settings-heading">Color mode</h3><div class="theme-options" role="group" aria-label="Color mode">${[['light','Light','Bright workspace'],['dark','Dark','Dim workspace']].map(([value,label,description])=>`<button type="button" data-theme-choice="${value}" aria-pressed="${choice===value}"><strong>${label}</strong><small>${description}</small></button>`).join('')}</div><h3>Terminal</h3><div class="form-grid"><label>Font<select id="terminal-font"><option value="jetbrains">JetBrains Mono</option><option value="system">System monospace</option><option value="consolas">Consolas</option><option value="courier">Courier New</option></select></label><label>Font size<select id="terminal-size">${[10,11,12,13,14,15,16,17,18,19,20,21,22,23,24].map(size=>`<option value="${size}">${size} px</option>`).join('')}</select></label></div>`;
+    $('#settings-content').innerHTML=`<h3 class="settings-heading">Color mode</h3><div class="theme-options" role="group" aria-label="Color mode">${[['light','Light','Bright workspace'],['dark','Dark','Dim workspace']].map(([value,label,description])=>`<button type="button" data-theme-choice="${value}" aria-pressed="${choice===value}"><strong>${label}</strong><small>${description}</small></button>`).join('')}</div><h3>Terminal</h3><div class="form-grid"><label>Font<select id="terminal-font"><option value="jetbrains">JetBrains Mono</option><option value="system">System monospace</option><option value="consolas">Consolas</option><option value="courier">Courier New</option></select></label><label>Font size<select id="terminal-size">${[10,11,12,13,14,15,16,17,18,19,20,21,22,23,24].map(size=>`<option value="${size}">${size} px</option>`).join('')}</select></label></div><div class="terminal-preview-label">Preview</div><div id="terminal-preview" class="terminal-preview" aria-label="Terminal font preview"><div><span class="preview-prompt">user@server:~$</span> ls</div><div><span class="preview-directory">projects</span>  notes.txt</div><div><span class="preview-prompt">user@server:~$</span> <span class="preview-cursor"> </span></div></div>`;
     $('#terminal-font').value=terminal.font;$('#terminal-size').value=String(terminal.size);
+    const updatePreview=()=>{const preview=$('#terminal-preview');preview.style.fontFamily=terminal.family;preview.style.fontSize=terminal.size+'px';};
+    updatePreview();
     $('#settings-content').onclick=event=>{const button=event.target.closest('[data-theme-choice]');if(!button)return;window.HilaitTheme.set(button.dataset.themeChoice);appearanceSettings();};
-    $('#terminal-font').onchange=()=>terminal.set($('#terminal-font').value,Number($('#terminal-size').value));
-    $('#terminal-size').onchange=()=>terminal.set($('#terminal-font').value,Number($('#terminal-size').value));
+    $('#terminal-font').onchange=()=>{terminal.set($('#terminal-font').value,Number($('#terminal-size').value));updatePreview();};
+    $('#terminal-size').onchange=()=>{terminal.set($('#terminal-font').value,Number($('#terminal-size').value));updatePreview();};
   }
   async function notificationSettings() {
     const box=$('#settings-content');box.innerHTML='<p>Loading notification settings…</p>';

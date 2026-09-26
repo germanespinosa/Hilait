@@ -13,6 +13,7 @@ const terminalFonts = {
 };
 const terminalAppearance = {
   get font(){const value=localStorage.getItem('hilait-terminal-font');return terminalFonts[value]?value:'jetbrains';},
+  get family(){return terminalFonts[this.font];},
   get size(){const value=Number(localStorage.getItem('hilait-terminal-size'));return Number.isInteger(value)&&value>=10&&value<=24?value:14;},
   set(font,size){if(!terminalFonts[font]||!Number.isInteger(size)||size<10||size>24)return;localStorage.setItem('hilait-terminal-font',font);localStorage.setItem('hilait-terminal-size',String(size));dispatchEvent(new CustomEvent('hilait-terminal-appearance-change'));}
 };

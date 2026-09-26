@@ -110,6 +110,12 @@ a { color: var(--accent); }
 .theme-options strong, .theme-options small { display: block; }
 .theme-options strong { font-size: 14px; }
 .theme-options small { margin-top: 5px; color: var(--muted); font-size: 11px; }
+.terminal-preview-label { margin: 18px 0 7px; color: var(--muted); font-size: 12px; font-weight: 550; }
+.terminal-preview { padding: 13px 15px; overflow-x: auto; color: #e8f0ec; background: #000; border: 1px solid var(--line); border-radius: 8px; line-height: 1.12; white-space: pre; }
+.terminal-preview > div + div { margin-top: 5px; }
+.preview-prompt { color: #8fd1aa; }
+.preview-directory { color: #92b9ef; }
+.preview-cursor { display: inline-block; width: .6em; height: 1.1em; background: #e8f0ec; vertical-align: -.2em; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; }
 .form-grid .full { grid-column: 1 / -1; }
 .actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 20px; }

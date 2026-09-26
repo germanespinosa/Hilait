@@ -4,6 +4,11 @@ import {SearchAddon} from '@xterm/addon-search';
 import {Unicode11Addon} from '@xterm/addon-unicode11';
 import {UnicodeGraphemesAddon} from '@xterm/addon-unicode-graphemes';
 
+const terminalThemes = {
+  dark: {background:'#101a1c',foreground:'#e2eee8',cursor:'#94ddbf',selectionBackground:'#31594b',black:'#263733',red:'#ff9998',green:'#8fd1aa',yellow:'#e5c681',blue:'#92b9ef',magenta:'#d3a7e4',cyan:'#8bd1d0',white:'#e2eee8',brightBlack:'#8fa9a0'},
+  light: {background:'#f9fcfa',foreground:'#1b3027',cursor:'#216747',selectionBackground:'#c5e4d1',black:'#23362d',red:'#ad3544',green:'#236847',yellow:'#916317',blue:'#315eab',magenta:'#814e9b',cyan:'#236d79',white:'#eff5ef',brightBlack:'#667b6e'}
+};
+
 class HilaitTerminal {
   constructor(element) {
     this.element = element;
@@ -11,7 +16,9 @@ class HilaitTerminal {
     this.opened = false;
     this.fitFrame = 0;
     this.term = new Terminal({allowProposedApi:true,fontFamily:'"Hilait Mono", "Cascadia Mono", "SFMono-Regular", Consolas, monospace',fontSize:14,fontWeight:400,fontWeightBold:700,lineHeight:1.12,letterSpacing:0,cursorBlink:true,scrollback:20000,screenReaderMode:true,
-      theme:{background:'#10151e',foreground:'#d9e2f1',cursor:'#80e0c2',selectionBackground:'#345969',black:'#202b3c',red:'#f28b91',green:'#87d6b0',yellow:'#eac786',blue:'#89b4fa',magenta:'#cba6f7',cyan:'#89dceb',white:'#e2e8f0',brightBlack:'#7d8da6'}});
+      theme:terminalThemes[document.documentElement.dataset.theme] || terminalThemes.dark});
+    this._themeListener = event => { this.term.options.theme = terminalThemes[event.detail.theme]; };
+    addEventListener('hilait-theme-change', this._themeListener);
     this.fitAddon = new FitAddon(); this.searchAddon = new SearchAddon();
     this.term.loadAddon(this.fitAddon); this.term.loadAddon(this.searchAddon); this.term.loadAddon(new Unicode11Addon()); this.term.loadAddon(new UnicodeGraphemesAddon()); this.term.unicode.activeVersion='11';
     this.term.onData(data=>this.onInput?.(data)); this.term.onBinary(data=>this.onBinary?.(btoa(data)));
@@ -47,6 +54,6 @@ class HilaitTerminal {
   write(base64){if(base64)this.term.write(Uint8Array.from(atob(base64),char=>char.charCodeAt(0)));}
   screen(){const buffer=this.term.buffer.active;return {columns:this.term.cols,rows:this.term.rows,cursorX:buffer.cursorX,cursorY:buffer.cursorY,buffer:buffer.type,
     lines:Array.from({length:this.term.rows},(_,row)=>buffer.getLine(buffer.baseY+row)?.translateToString(true)??'')};}
-  dispose(){this.disposed=true;if(this.fitFrame)cancelAnimationFrame(this.fitFrame);this.observer?.disconnect();if(this._context)this.element.removeEventListener('contextmenu',this._context);this.term.dispose();}
+  dispose(){this.disposed=true;if(this.fitFrame)cancelAnimationFrame(this.fitFrame);this.observer?.disconnect();if(this._context)this.element.removeEventListener('contextmenu',this._context);removeEventListener('hilait-theme-change',this._themeListener);this.term.dispose();}
 }
 window.HilaitTerminal=HilaitTerminal;

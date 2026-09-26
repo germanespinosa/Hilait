@@ -3,9 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Hilait · Human in the loop AI terminal</title>
   <link rel="icon" href="/static/logo.png?v={{VERSION}}">
+  <script src="/static/theme.js?v={{VERSION}}"></script>
+  <link rel="stylesheet" href="/static/theme.css?v={{VERSION}}">
   <link rel="stylesheet" href="/static/app.css?v={{VERSION}}">
   <link rel="stylesheet" href="/static/vendor/xterm.css?v={{VERSION}}">
   <link rel="preload" href="/static/fonts/jetbrains-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -14,47 +17,47 @@
 <body>
   <div id="login" class="login-shell hidden">
     <div class="login-card">
-      <img src="/static/logo.png?v={{VERSION}}" alt="" width="52" height="52">
-      <h1>Hilait</h1>
-      <p>Enter the admin token printed by <code>hilait serve</code>.</p>
+      <div class="login-top"><img src="/static/logo.png?v={{VERSION}}" alt="" width="48" height="48"><button class="icon theme-toggle" data-theme-toggle type="button" aria-label="Switch color mode"><svg viewBox="0 0 24 24" aria-hidden="true"><g class="theme-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></g><path class="theme-moon" d="M20.5 15.2A8.5 8.5 0 0 1 8.8 3.5 8.5 8.5 0 1 0 20.5 15.2Z"/></svg></button></div>
+      <h1>Sign in to Hilait</h1>
+      <p>Use the admin token shown when Hilait starts.</p>
       <label>Admin token<input id="login-token" type="password" autocomplete="off"></label>
-      <button id="login-button" class="primary">Open workspace</button>
+      <button id="login-button" class="primary">Continue</button>
       <p id="login-error" class="error"></p>
     </div>
   </div>
 
   <div id="otp-login" class="login-shell hidden">
     <form id="otp-login-form" class="login-card">
-      <img src="/static/logo.png?v={{VERSION}}" alt="" width="52" height="52">
+      <div class="login-top"><img src="/static/logo.png?v={{VERSION}}" alt="" width="48" height="48"><button class="icon theme-toggle" data-theme-toggle type="button" aria-label="Switch color mode"><svg viewBox="0 0 24 24" aria-hidden="true"><g class="theme-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></g><path class="theme-moon" d="M20.5 15.2A8.5 8.5 0 0 1 8.8 3.5 8.5 8.5 0 1 0 20.5 15.2Z"/></svg></button></div>
       <h1>Authenticator code</h1>
-      <p>Enter the six-digit code from your authenticator app to open Hilait.</p>
-      <label>One-time code<input id="otp-login-code" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
-      <button type="submit" class="primary">Verify and open</button>
+      <p>Enter the code from your authenticator app.</p>
+      <label>Six-digit code<input id="otp-login-code" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
+      <button type="submit" class="primary">Continue</button>
       <p id="otp-login-error" class="error" role="alert"></p>
     </form>
   </div>
 
   <div id="workspace" class="workspace hidden">
     <aside class="machines-pane">
-      <div class="brand"><img src="/static/logo.png?v={{VERSION}}" alt="" width="46" height="46"><div><strong>Hilait</strong><small>HUMAN IN THE LOOP<br>AI TERMINAL</small></div></div>
+      <div class="brand"><img src="/static/logo.png?v={{VERSION}}" alt="" width="42" height="42"><strong>Hilait</strong></div>
       <div class="icon-row">
-        <button id="new-profile" class="icon" title="New connection" aria-label="New connection">＋</button>
-        <button id="open-settings" class="icon" title="Settings" aria-label="Settings">⚙</button>
-        <button id="open-logs" class="icon" title="Agent session logs" aria-label="Agent session logs">▤</button>
+        <button id="new-profile" class="icon" title="New connection" aria-label="New connection"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></button>
+        <button id="open-settings" class="icon" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></svg></button>
+        <button id="open-logs" class="icon" title="Agent session logs" aria-label="Agent session logs"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></button>
+        <button class="icon theme-toggle" data-theme-toggle type="button" aria-label="Switch color mode"><svg viewBox="0 0 24 24" aria-hidden="true"><g class="theme-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></g><path class="theme-moon" d="M20.5 15.2A8.5 8.5 0 0 1 8.8 3.5 8.5 8.5 0 1 0 20.5 15.2Z"/></svg></button>
       </div>
-      <label class="search-label">Search connections<input id="search-profiles" type="search" placeholder="Find a machine"></label>
-      <h2 class="eyebrow">CONNECTIONS · MACHINES</h2>
+      <label class="search-label"><span class="sr-only">Search connections</span><input id="search-profiles" type="search" placeholder="Search connections"></label>
+      <h2 class="eyebrow">Connections</h2>
       <div id="machine-list" class="list scroll"></div>
-      <div class="aside-foot"><span>Protected on this device</span><small>Secrets and agent logs are encrypted.<br>Server identities are verified.</small></div>
     </aside>
 
     <section class="sessions-pane">
-      <header><h2>ACTIVE CONNECTIONS</h2><p>Sessions on the selected machine</p></header>
+      <header><h2>Sessions</h2></header>
       <div id="session-list" class="list scroll"></div>
     </section>
 
     <main class="main-pane">
-      <div id="welcome" class="welcome"><span class="eyebrow accent">READY WHEN YOU ARE</span><h1>Choose a connection.</h1><p>Double-click a saved machine to open a terminal. Agent requests appear here for your approval.</p><button id="welcome-new" class="primary">＋ New connection</button></div>
+      <div id="welcome" class="welcome"><h1 id="welcome-title">Double-click a machine to connect</h1><p id="welcome-copy" class="hidden">Save a machine to start a terminal session.</p><button id="welcome-new" class="primary hidden">New connection</button></div>
       <div id="session-view" class="session-view hidden">
         <div id="agent-strip" class="agent-strip hidden"></div>
         <div class="terminal-top"><div><strong id="terminal-title"></strong><span id="terminal-subtitle"></span></div><div class="toolbar"><button id="files-toggle">Files</button><button id="terminal-close">Disconnect</button></div></div>
@@ -64,7 +67,7 @@
     <footer id="status">Ready</footer>
   </div>
 
-  <div id="modal-backdrop" class="modal-backdrop hidden"><div id="modal" class="modal" role="dialog" aria-modal="true"></div></div>
+  <div id="modal-backdrop" class="modal-backdrop hidden"><div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"></div></div>
   <div id="toast" class="toast hidden"></div>
   <script src="/static/vendor/xterm.js?v={{VERSION}}"></script>
   <script src="/static/app.js?v={{VERSION}}"></script>

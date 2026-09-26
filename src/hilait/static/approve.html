@@ -3,14 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Agent request · Hilait</title>
   <link rel="icon" href="/static/logo.png?v={{VERSION}}">
+  <script src="/static/theme.js?v={{VERSION}}"></script>
+  <link rel="stylesheet" href="/static/theme.css?v={{VERSION}}">
   <link rel="stylesheet" href="/static/approve.css?v={{VERSION}}">
 </head>
 <body>
   <div class="page">
-    <header><img src="/static/logo.png?v={{VERSION}}" alt="" width="40" height="40"><div><strong>Hilait</strong><small>Agent access request</small></div></header>
+    <header><img src="/static/logo.png?v={{VERSION}}" alt="" width="40" height="40"><strong>Hilait</strong><button class="icon theme-toggle" data-theme-toggle type="button" aria-label="Switch color mode"><svg viewBox="0 0 24 24" aria-hidden="true"><g class="theme-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></g><path class="theme-moon" d="M20.5 15.2A8.5 8.5 0 0 1 8.8 3.5 8.5 8.5 0 1 0 20.5 15.2Z"/></svg></button></header>
     <main>
       <section id="loading" class="card"><p>Loading request…</p></section>
       <section id="login" class="card hidden">

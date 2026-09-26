@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from .agents import AgentRuntime, ENDED, SCOPES
 from .admin_auth import AdminAuth, RateLimitError
 from .files import FileService
+from .ntfy import NtfyNotifier
 from .review import Reviewer
 from .sessions import HostKeyApprovalNeeded, SessionManager
 from .storage import Audit, Store
@@ -33,6 +34,8 @@ class Runtime:
         self.sessions = SessionManager(self.store, self.audit)
         self.files = FileService(self.sessions, self.audit)
         self.agents = AgentRuntime(self.store, self.audit, self.sessions, self.files)
+        self.ntfy = NtfyNotifier(self.store, self.audit)
+        self.agents.on_pending = self.ntfy.notify_pending
         self.reviewer = Reviewer(self.store, self.audit)
         self.sudo_requests: dict[str, tuple[dict, asyncio.Future]] = {}
         self.sudo_consents: set[str] = set()
@@ -78,7 +81,7 @@ def create_app(root: Path | None = None) -> FastAPI:
         for session_id in list(runtime.sessions.sessions):
             await runtime.sessions.close(session_id, "Hilait stopped")
 
-    app = FastAPI(title="Hilait", version="0.1.7", lifespan=lifespan)
+    app = FastAPI(title="Hilait", version="0.1.8", lifespan=lifespan)
     app.state.runtime = runtime
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
@@ -125,6 +128,11 @@ def create_app(root: Path | None = None) -> FastAPI:
         html = (STATIC / "index.html").read_text(encoding="utf-8").replace("{{VERSION}}", app.version)
         return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
+    @app.get("/approve/{grant_id}")
+    async def approval_page(grant_id: uuid.UUID):
+        html = (STATIC / "approve.html").read_text(encoding="utf-8").replace("{{VERSION}}", app.version)
+        return HTMLResponse(html, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
     @app.get("/health")
     async def health():
         return {"status": "ready"}
@@ -165,6 +173,20 @@ def create_app(root: Path | None = None) -> FastAPI:
     async def otp_disable(payload: dict):
         runtime.auth.disable(str(payload.get("code", "")))
         return {"disabled": True}
+
+    @app.get("/api/notifications/ntfy", dependencies=[Depends(admin)])
+    async def ntfy_settings(response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        return runtime.ntfy.public_settings()
+
+    @app.put("/api/notifications/ntfy", dependencies=[Depends(admin)])
+    async def save_ntfy_settings(payload: dict):
+        return runtime.ntfy.save(payload)
+
+    @app.post("/api/notifications/ntfy/test", dependencies=[Depends(admin)])
+    async def test_ntfy():
+        await runtime.ntfy.test()
+        return {"sent": True}
 
     @app.get("/api/state", dependencies=[Depends(admin)])
     async def state():
@@ -359,15 +381,20 @@ def create_app(root: Path | None = None) -> FastAPI:
         runtime.agents.revoke_authorization(authorization_id)
         return {"revoked": authorization_id}
 
+    @app.get("/api/grants/{grant_id}", dependencies=[Depends(admin)])
+    async def grant_detail(grant_id: str, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        return runtime.agents.pending(grant_id).public()
+
     @app.post("/api/grants/{grant_id}/{action}", dependencies=[Depends(admin)])
     async def grant_action(grant_id: str, action: str, payload: dict):
-        grant = runtime.agents.grants.get(grant_id)
-        if not grant:
-            raise KeyError("Access request not found.")
+        grant = runtime.agents.pending(grant_id)
         if action == "approve":
             return (await runtime.agents.approve(grant_id, local_folder=payload.get("local_folder"),
                         duration_hours=payload.get("duration_hours"), secret=payload.get("secret"))).public()
         if action == "reject":
+            if grant.state != "Pending" or grant.id in runtime.agents.approving:
+                raise ValueError("Pending request not found.")
             runtime.agents.change(grant, "Denied", "Connection request rejected by user")
         elif action == "pause":
             runtime.agents.change(grant, "Paused", "Paused by user")

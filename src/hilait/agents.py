@@ -55,6 +55,8 @@ class AgentRuntime:
         self.grants: dict[str, Grant] = {}
         self.lock = asyncio.Lock()
         self.notifications: set[asyncio.Queue] = set()
+        self.on_pending = None
+        self.approving: set[str] = set()
         sessions.on_close = self._session_closed
 
     def _notify(self, event: dict) -> None:
@@ -156,6 +158,16 @@ class AgentRuntime:
                 await self.approve(grant.id, local_folder=authorization.get("local_folder"))
             except Exception as exc:
                 self.audit.write("automatic_approval_failed", grant.context(), {"error": str(exc)})
+        if grant.state == "Pending" and self.on_pending:
+            asyncio.create_task(self.on_pending(grant))
+        return grant
+
+    def pending(self, grant_id: str) -> Grant:
+        grant = self.grants.get(grant_id)
+        if not grant:
+            raise KeyError("Access request not found.")
+        if grant.state == "Pending" and datetime.now(timezone.utc) - datetime.fromisoformat(grant.requested_utc) > timedelta(minutes=10):
+            self.change(grant, "Expired", "Approval request expired")
         return grant
 
     def owned(self, agent: dict, grant_id: str, *, active: bool = False, files: bool = False,
@@ -177,16 +189,22 @@ class AgentRuntime:
 
     async def approve(self, grant_id: str, *, local_folder: str | None = None,
                       duration_hours: float | None = None, secret: str | None = None) -> Grant:
-        grant = self.grants.get(grant_id)
+        grant = self.pending(grant_id)
         if not grant or grant.state != "Pending":
             raise ValueError("Pending request not found.")
+        if grant_id in self.approving:
+            raise ValueError("This request is already being approved.")
         if duration_hours is not None and not 0 < duration_hours <= 8760:
             raise ValueError("Choose an authorization period up to 365 days.")
         if grant.file_access == "LocalTransfers" and not local_folder:
             raise ValueError("Choose a local transfer folder for this request.")
         profile = self.store.profile(grant.profile_id)
-        session = await self.sessions.open(profile, secret=secret, owner=grant.agent,
-                                           purpose=grant.purpose, grant_id=grant.id)
+        self.approving.add(grant_id)
+        try:
+            session = await self.sessions.open(profile, secret=secret, owner=grant.agent,
+                                               purpose=grant.purpose, grant_id=grant.id)
+        finally:
+            self.approving.discard(grant_id)
         grant.session_id, grant.local_folder = session.id, local_folder
         self.change(grant, "Approved", "Connection request approved by user")
         if duration_hours:

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hilait"
-version = "0.1.7"
+version = "0.1.8"
 description = "Human-in-the-loop SSH workspace with a local web interface and agent access"
 readme = "README.md"
 requires-python = ">=3.11"

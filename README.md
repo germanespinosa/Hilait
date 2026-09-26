@@ -52,6 +52,12 @@ Open **Settings → OTP → Generate OTP seed**, scan the QR code with Google Au
 
 The OTP tab can replace or disable the authenticator with a current code. If the authenticator is lost, stop Hilait and run `hilait otp reset` as the same server account, then restart and sign in with the admin token. Anyone who can run that command as the server account can also read Hilait's local secrets, so protect that account. Agent tokens and their access workflow are separate from the human OTP login.
 
+### Phone notifications with ntfy
+
+In **Settings → Notifications**, enter your ntfy server URL, a private topic, an optional ntfy access token, and the HTTPS URL by which your phone reaches Hilait. Save the settings, then use **Send test**. The ntfy phone app must subscribe to that topic; protect it with ntfy's access controls. The access token is encrypted in Hilait's local data and is never returned to the browser after saving.
+
+When an agent requests access without a matching authorization, Hilait sends the agent name, machine name, file scope, and a short purpose preview. **Review and approve** and **Review and deny** open a mobile-friendly Hilait page for that specific request. Sign in with the authenticator code when OTP is enabled, read the complete purpose, choose an approval duration and any required local transfer folder, then confirm. The notification itself never contains the Hilait admin token or a credential that can approve access. Requests expire after ten minutes; stale links cannot approve or deny them. If ntfy is unreachable, the request remains pending in Hilait and delivery failure is recorded in the audit log. Your phone needs a trusted LAN or VPN path to Hilait; ntfy does not need inbound access to Hilait.
+
 The package includes its terminal JavaScript and CSS. Node.js is needed only when rebuilding those assets from source.
 
 ## Use the workspace

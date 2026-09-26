@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Agent request · Hilait</title>
+  <link rel="icon" href="/static/logo.png?v={{VERSION}}">
+  <link rel="stylesheet" href="/static/approve.css?v={{VERSION}}">
+</head>
+<body>
+  <div class="page">
+    <header><img src="/static/logo.png?v={{VERSION}}" alt="" width="40" height="40"><div><strong>Hilait</strong><small>Agent access request</small></div></header>
+    <main>
+      <section id="loading" class="card"><p>Loading request…</p></section>
+      <section id="login" class="card hidden">
+        <h1>Verify it’s you</h1>
+        <p id="login-description"></p>
+        <form id="login-form"><label id="login-label"></label><input id="login-value" required autocomplete="one-time-code"><button class="primary" type="submit">Continue</button></form>
+        <p id="login-error" class="error" role="alert"></p>
+      </section>
+      <section id="request" class="card hidden">
+        <p class="eyebrow">CONNECTION REQUEST</p>
+        <h1 id="request-title"></h1>
+        <dl><div><dt>Agent</dt><dd id="request-agent"></dd></div><div><dt>Machine</dt><dd id="request-machine"></dd></div><div><dt>Files</dt><dd id="request-files"></dd></div></dl>
+        <h2>Stated purpose</h2><p id="request-purpose" class="purpose"></p>
+        <p id="request-state" class="state hidden"></p>
+        <form id="decision-form">
+          <label>Approval duration<select name="duration_hours"><option value="">This request only</option><option value="0.083333">5 minutes</option><option value="0.25">15 minutes</option><option value="0.5">30 minutes</option><option value="1">1 hour</option><option value="2">2 hours</option><option value="4">4 hours</option><option value="8">8 hours</option><option value="24">24 hours</option></select></label>
+          <p class="hint">A duration approves future requests from this agent for this machine and file scope only.</p>
+          <label id="folder-field" class="hidden">Local transfer folder on the Hilait server<input name="local_folder" autocomplete="off"></label>
+          <label>SSH password or key passphrase, if not saved<input name="secret" type="password" autocomplete="off"></label>
+          <p id="decision-hint" class="hint"></p>
+          <div class="actions"><button type="button" id="deny">Deny request</button><button type="submit" class="primary">Approve connection</button></div>
+        </form>
+        <div id="host-key" class="host-key hidden"><h2>Verify server identity</h2><p>Compare this fingerprint with a trusted source before continuing.</p><code id="fingerprint"></code><p id="previous-key" class="error"></p><div class="actions"><button id="host-cancel">Cancel</button><button id="host-trust" class="primary">Trust key and retry</button></div></div>
+        <p id="decision-error" class="error" role="alert"></p>
+      </section>
+    </main>
+    <footer><a href="/">Open Hilait workspace</a></footer>
+  </div>
+  <script src="/static/approve.js?v={{VERSION}}"></script>
+</body>
+</html>

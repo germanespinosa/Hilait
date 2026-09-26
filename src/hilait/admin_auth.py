@@ -149,7 +149,9 @@ class AdminAuth:
             if not pending:
                 raise ValueError("Generate an OTP seed first.")
             step = self._check_code(pending, code, -1)
-            self.store.write_secure("admin-otp.json", {"seed": pending, "last_step": step})
+            with self.store.lock:
+                self.store.replace_connection_key(pending, first_setup=not bool(settings.get("seed")))
+                self.store.write_secure("admin-otp.json", {"seed": pending, "last_step": step})
             self.sessions.clear()
             return self._session()
 
@@ -165,5 +167,7 @@ class AdminAuth:
             if not settings.get("seed"):
                 raise ValueError("OTP is not configured.")
             self._check_code(settings["seed"], code, settings.get("last_step", -1))
-            self.store.write_secure("admin-otp.json", {})
+            with self.store.lock:
+                self.store.discard_connections()
+                self.store.write_secure("admin-otp.json", {})
             self.sessions.clear()

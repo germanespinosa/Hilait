@@ -30,8 +30,10 @@ def main() -> None:
         return
     if args.command == "otp":
         from .storage import Store
-        Store().write_secure("admin-otp.json", {})
-        print("OTP reset. Restart Hilait and sign in with the admin token.")
+        store = Store()
+        store.discard_connections()
+        store.write_secure("admin-otp.json", {})
+        print("OTP reset. Saved connections and machine authorizations were deleted. Restart Hilait and sign in with the admin token.")
         return
     if args.host not in {"127.0.0.1", "::1", "localhost"}:
         parser.error("For network access, use --lan to enable HTTPS. --host is for loopback only.")

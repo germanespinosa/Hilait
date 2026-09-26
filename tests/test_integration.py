@@ -26,9 +26,10 @@ async def fixture_server(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_ssh_host_trust_terminal_sftp_and_agent_scope(tmp_path, fixture_server):
+async def test_ssh_host_trust_terminal_sftp_and_agent_scope(tmp_path, fixture_server, activate_otp):
     app = create_app(tmp_path / "data")
     runtime = app.state.runtime
+    activate_otp(runtime)
     profile = {"id":"machine-1", "name":"Loopback", "host":"127.0.0.1", "port":fixture_server,
                "username":"harbor-test", "secret":runtime.store.encrypt("loopback-fixture-only"),
                "platform":"unix", "shell":"default", "allowed_agent_ids":None}
@@ -84,7 +85,7 @@ async def test_ssh_host_trust_terminal_sftp_and_agent_scope(tmp_path, fixture_se
 
 
 @pytest.mark.asyncio
-async def test_api_token_and_machine_authorization(tmp_path):
+async def test_api_token_and_machine_authorization(tmp_path, activate_otp):
     app = create_app(tmp_path)
     runtime = app.state.runtime
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
@@ -95,6 +96,9 @@ async def test_api_token_and_machine_authorization(tmp_path):
         assert (await client.get("/static/fonts/jetbrains-mono-latin-400-normal.woff2")).status_code == 200
         assert (await client.get("/api/state")).status_code == 401
         headers = {"Authorization":"Bearer "+runtime.store.admin_token}
+        blocked = await client.post("/api/profiles", headers=headers, json={"name":"One","host":"localhost","username":"ada"})
+        assert blocked.status_code == 403
+        headers = {"Authorization":"Bearer "+activate_otp(runtime)}
         created = await client.post("/api/profiles", headers=headers, json={"name":"One","host":"localhost","username":"ada"})
         assert created.status_code == 200, created.text
         profile = created.json()

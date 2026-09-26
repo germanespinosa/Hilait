@@ -6,12 +6,21 @@ from hilait.files import local_path, remote_path
 from hilait.storage import Audit, Store
 
 
-def test_encrypted_storage_and_audit_chain(tmp_path):
+def test_encrypted_storage_and_audit_chain(tmp_path, activate_otp):
     store = Store(tmp_path)
+    with pytest.raises(PermissionError):
+        store.save_profiles([{"id": "one", "name": "Fixture"}])
+    activate_otp(store)
     secret = store.encrypt("unique-private-password")
     store.save_profiles([{"id": "one", "name": "Fixture", "secret": secret}])
     assert "unique-private-password" not in (tmp_path / "connections.json").read_text()
+    assert "Fixture" not in (tmp_path / "connections.json").read_text()
     assert store.decrypt(store.profiles()[0]["secret"]) == "unique-private-password"
+    store.write("known-hosts.json", {"private.example:22": "fingerprint"})
+    store.write("authorizations.json", [{"connection": "Fixture", "profile_id": "one"}])
+    assert "private.example" not in (tmp_path / "known-hosts.json").read_text()
+    assert "Fixture" not in (tmp_path / "authorizations.json").read_text()
+    assert store.read("known-hosts.json", {}) == {"private.example:22": "fingerprint"}
     store.write_secure("reviews.enc", {"g1": {"rationale": "sensitive session finding"}})
     assert "sensitive session finding" not in (tmp_path / "reviews.enc").read_text()
     assert store.read_secure("reviews.enc", {})["g1"]["rationale"] == "sensitive session finding"

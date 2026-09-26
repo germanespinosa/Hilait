@@ -54,6 +54,7 @@ class Runtime:
             "authorizations": self.agents.authorizations(),
             "reviewSettings": self.reviewer.public_settings(),
             "sudoRequests": [data for data, _ in self.sudo_requests.values()],
+            "otpEnabled": self.auth.enabled(),
         }
 
 
@@ -81,7 +82,7 @@ def create_app(root: Path | None = None) -> FastAPI:
         for session_id in list(runtime.sessions.sessions):
             await runtime.sessions.close(session_id, "Hilait stopped")
 
-    app = FastAPI(title="Hilait", version="0.1.10", lifespan=lifespan)
+    app = FastAPI(title="Hilait", version="0.1.11", lifespan=lifespan)
     app.state.runtime = runtime
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
@@ -160,7 +161,13 @@ def create_app(root: Path | None = None) -> FastAPI:
     @app.post("/api/otp/confirm", dependencies=[Depends(admin)])
     async def otp_confirm(payload: dict, response: Response):
         response.headers["Cache-Control"] = "no-store"
+        if runtime.auth.enabled() and runtime.sessions.sessions:
+            raise ValueError("Disconnect all sessions before replacing the authenticator.")
         session = runtime.auth.confirm_setup(str(payload.get("code", "")))
+        for grant in runtime.agents.grants.values():
+            if grant.state not in ENDED and grant.profile_id not in {p["id"] for p in runtime.store.profiles()}:
+                runtime.agents.change(grant, "Revoked", "Authenticator key replaced")
+        runtime.agents._notify({"type": "profiles"})
         return {"session": session}
 
     @app.post("/api/otp/cancel", dependencies=[Depends(admin)])
@@ -171,7 +178,13 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @app.post("/api/otp/disable", dependencies=[Depends(admin)])
     async def otp_disable(payload: dict):
+        if runtime.sessions.sessions:
+            raise ValueError("Disconnect all sessions before turning off the authenticator.")
         runtime.auth.disable(str(payload.get("code", "")))
+        for grant in runtime.agents.grants.values():
+            if grant.state not in ENDED:
+                runtime.agents.change(grant, "Revoked", "Authenticator disabled")
+        runtime.agents._notify({"type": "profiles"})
         return {"disabled": True}
 
     @app.get("/api/notifications/ntfy", dependencies=[Depends(admin)])
@@ -194,6 +207,8 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @app.post("/api/profiles", dependencies=[Depends(admin)])
     async def save_profile(payload: dict):
+        if not runtime.auth.enabled():
+            raise PermissionError("Set up an authenticator before saving connections.")
         name = str(payload.get("name", "")).strip()
         host = str(payload.get("host", "")).strip()
         username = str(payload.get("username", "")).strip()

@@ -14,12 +14,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from platformdirs import user_data_path
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+CONNECTION_FILES = {"connections.json", "known-hosts.json", "authorizations.json"}
 
 
 def atomic_json(path: Path, value: Any) -> None:
@@ -70,10 +73,30 @@ class Store:
     def read(self, name: str, default: Any) -> Any:
         with self.lock:
             path = self.root / name
+            if name in CONNECTION_FILES:
+                seed = self.read_secure("admin-otp.json", {}).get("seed")
+                if not seed or not path.exists():
+                    return default
+                data = path.read_bytes()
+                if data.lstrip().startswith((b"[", b"{")):
+                    value = json.loads(data)
+                    self.write(name, value)
+                    return value
+                try:
+                    return json.loads(self._connection_cipher(seed).decrypt(data))
+                except InvalidToken as exc:
+                    raise ValueError("Saved connection data cannot be opened with the current authenticator key.") from exc
             return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
 
     def write(self, name: str, value: Any) -> None:
         with self.lock:
+            if name in CONNECTION_FILES:
+                seed = self.read_secure("admin-otp.json", {}).get("seed")
+                if not seed:
+                    raise PermissionError("Set up an authenticator before saving connections.")
+                data = self._connection_cipher(seed).encrypt(json.dumps(value, ensure_ascii=False).encode())
+                self._write_connection_bytes(name, data)
+                return
             atomic_json(self.root / name, value)
 
     def read_secure(self, name: str, default: Any) -> Any:
@@ -103,6 +126,42 @@ class Store:
 
     def save_profiles(self, profiles: list[dict]) -> None:
         self.write("connections.json", profiles)
+
+    @staticmethod
+    def _connection_cipher(seed: str) -> Fernet:
+        raw = base64.b32decode(seed.upper() + "=" * (-len(seed) % 8))
+        key = hashlib.sha256(b"Hilait connection records v1\0" + raw).digest()
+        return Fernet(base64.urlsafe_b64encode(key))
+
+    def _write_connection_bytes(self, name: str, data: bytes) -> None:
+        fd, temporary = tempfile.mkstemp(prefix=name + ".", dir=self.root)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.root / name)
+            if os.name != "nt":
+                (self.root / name).chmod(0o600)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+    def replace_connection_key(self, new_seed: str, *, first_setup: bool) -> None:
+        """Migrate legacy connections on first setup; discard them on key replacement."""
+        with self.lock:
+            defaults = {"connections.json": [], "known-hosts.json": {}, "authorizations.json": []}
+            cipher = self._connection_cipher(new_seed)
+            for name, default in defaults.items():
+                path = self.root / name
+                existing = path.read_bytes() if path.exists() else b""
+                legacy = json.loads(existing) if first_setup and existing.lstrip().startswith((b"[", b"{")) else default
+                self._write_connection_bytes(name, cipher.encrypt(json.dumps(legacy, ensure_ascii=False).encode()))
+
+    def discard_connections(self) -> None:
+        with self.lock:
+            for name in CONNECTION_FILES:
+                (self.root / name).unlink(missing_ok=True)
 
     def public_profile(self, profile: dict, *, agent: bool = False) -> dict:
         if agent:

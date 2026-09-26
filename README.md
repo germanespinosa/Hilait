@@ -32,7 +32,7 @@ python -m pip install git+https://github.com/germanespinosa/Hilait.git
 hilait serve --open
 ```
 
-The server binds to `127.0.0.1:8765` by default. Before OTP is configured, it prints an admin token and opens the browser when `--open` is used. If the browser cannot be launched, visit `http://127.0.0.1:8765` and paste the printed token. With OTP enabled, `--open` goes directly to the authenticator screen and the server no longer prints the admin token.
+The server binds to `127.0.0.1:8765` by default. Before OTP is configured, it prints an admin token and opens the browser when `--open` is used. If the browser cannot be launched, visit `http://127.0.0.1:8765` and paste the printed token. **Set up an authenticator before creating saved machine connections.** With OTP enabled, `--open` goes directly to the authenticator screen and the server no longer prints the admin token.
 
 ```bash
 hilait serve --port 8766
@@ -46,11 +46,11 @@ hilait serve --lan
 
 Hilait prints one or more `https://<server-ip>:8765` addresses and a certificate fingerprint. Open the matching address from the other computer and enter the admin token if OTP is not configured, or the authenticator code if it is. The first visit shows a browser warning because Hilait generates its own self-signed certificate; compare the certificate's SHA-256 fingerprint with the server output before accepting it. The certificate and private key stay in Hilait's per-user data directory so the fingerprint remains stable across restarts. Allow TCP port 8765 through the server firewall if it is blocked. `--lan` listens on all network interfaces, so use it only on a network where access is restricted to people you intend to serve. To avoid a LAN listener, keep the default mode and use an SSH tunnel instead.
 
-### Optional authenticator code
+### Authenticator and saved connections
 
 Open **Settings → Authenticator → Generate OTP seed**, scan the QR code with Google Authenticator or another TOTP app, then enter its six-digit code to activate it. You can also enter the displayed seed manually. Until activation, the admin token opens the workspace as before. After activation, Hilait asks only for the six-digit code; the admin token cannot use the web API or terminal WebSockets. A verified browser session lasts up to 12 hours and ends when Hilait restarts. The seed is encrypted in Hilait's data directory, and the QR code is generated locally. OTP is the sole web login factor while enabled, so keep the authenticator device and server account secure.
 
-The OTP tab can replace or disable the authenticator with a current code. If the authenticator is lost, stop Hilait and run `hilait otp reset` as the same server account, then restart and sign in with the admin token. Anyone who can run that command as the server account can also read Hilait's local secrets, so protect that account. Agent tokens and their access workflow are separate from the human OTP login.
+The active OTP seed derives the encryption key for saved machine profiles, trusted host fingerprints, and machine authorizations. On first setup, existing unencrypted connection data from older versions is migrated into this encrypted store. **Replacing the OTP key, turning OTP off, or running `hilait otp reset` permanently deletes that saved connection data.** The UI warns before replacement or disabling; active SSH sessions must be disconnected first. If the authenticator is lost, stop Hilait and run `hilait otp reset` as the same server account, then restart and sign in with the admin token to set up a new authenticator. Anyone who can run that command as the server account can also read Hilait's local secrets, so protect that account. Agent tokens and their access workflow are separate from the human OTP login.
 
 ### Phone notifications with ntfy
 
@@ -66,9 +66,9 @@ Create a saved machine with a display name, host, port, username, and optional S
 
 The left column holds saved machines. Drag one between its neighbors to save a new order. Selecting a machine shows only its active sessions, newest first. A new session selects its machine and terminal automatically; closed sessions disappear. Double-click a machine to connect, and disconnect from the terminal header or a session's context menu. Disconnecting warns that a remote foreground command or transfer may be interrupted.
 
-The workspace follows your device's light or dark appearance by default. Use the color-mode button in the sidebar for a quick switch, or choose **System**, **Light**, or **Dark** in **Settings → Appearance**. The preference is saved in your browser and also applies to the terminal and phone approval page.
+The workspace starts in your device's light or dark appearance. Use the color-mode button in the sidebar for a quick switch, or choose **Light** or **Dark** in **Settings → Appearance**. The choice is saved in your browser and also applies to the phone approval page. Appearance settings also offer terminal font and size controls; the terminal background stays black in either color mode.
 
-The terminal uses a black background in every appearance mode, bundled xterm.js, and monospaced JetBrains Mono with Unicode, ANSI color, alternate screen programs, scrollback, resizing, selection, copy/paste, search, and a rendered screen snapshot. Its layout adapts to narrow browsers without squeezing the terminal into a side column. Ctrl+C copies a selection and otherwise reaches the shell. Ctrl+V pastes; multiline pastes ask for confirmation. Right-click opens Copy and Paste. Ctrl+F searches scrollback, Ctrl+U toggles Unicode width behavior, and Ctrl+plus/minus changes the terminal font size.
+The terminal uses a black background in every appearance mode, bundled xterm.js, and a configurable monospaced font (JetBrains Mono by default) with Unicode, ANSI color, alternate screen programs, scrollback, resizing, selection, copy/paste, search, and a rendered screen snapshot. Its layout adapts to narrow browsers without squeezing the terminal into a side column. Ctrl+C copies a selection and otherwise reaches the shell. Ctrl+V pastes; multiline pastes ask for confirmation. Right-click opens Copy and Paste. Ctrl+F searches scrollback, Ctrl+U toggles Unicode width behavior, and Ctrl+plus/minus changes the terminal font size.
 
 **Files** opens a remote SFTP pane beside the selected terminal. Browse directories, create folders, upload and download through the browser, and rename or delete from the context menu. The SFTP API additionally supports paged listings, stat, bounded reads and writes, POSIX chmod, symlinks, and remote-to-remote or local-folder copies. Copy destinations must be new; recursive copies refuse symbolic links and do not overwrite. Each active session has its own SFTP channel.
 
@@ -76,7 +76,7 @@ Windows SSH machines can launch PowerShell 7 or Windows PowerShell 5.1 in the PT
 
 ## Give an agent access
 
-Open **Settings → Agents → Create agent**. Hilait creates a named identity and a unique secret token. Copy its MCP configuration into the agent's client. It runs the installed `hilait mcp` command and connects to the local server. Keep the server running while agents work.
+Open **Settings → Agent Access → Create agent access**. Hilait creates a named identity and a unique secret token. Copy its MCP configuration into the agent's client. It runs the installed `hilait mcp` command and connects to the local server. Keep the server running while agents work.
 
 The MCP process exposes ten tools: `connections`, `request_access`, `access_status`, `release_access`, `terminal_write`, `terminal_read`, `terminal_screen`, `files`, `copy`, and `request_sudo`. The `connections` result contains only permitted display names and IDs, without usernames or hostnames. Set **Allowed connections** per agent or choose an agent restriction when editing a machine. New machines allow all registered agents by default; permission to *request* a machine is not approval to *use* it.
 
@@ -94,7 +94,7 @@ In **Settings → Activity review**, enter an OpenAI-compatible endpoint such as
 
 ## Storage and trust
 
-Hilait stores profiles, known host fingerprints, agent identities, authorizations, review settings, and encrypted activity in the per-user application data directory selected by `platformdirs`. `master.key` encrypts saved secrets, OTP seed, and audit records with Fernet; on Unix its file and directory are created with owner-only permissions. Protect the account and that file together: copying the key with the data permits decryption. The admin token is in `admin.token`; keep it private for use if OTP is reset. While OTP is enabled, it is not accepted for web access. Agent tokens are distinct and grant access only through an approved, named identity.
+Hilait stores profiles, known host fingerprints, agent identities, authorizations, review settings, and encrypted activity in the per-user application data directory selected by `platformdirs`. The OTP seed derives the encryption key for connection profiles, trusted host fingerprints, and machine authorizations. `master.key` separately encrypts saved secrets, the OTP seed, and audit records with Fernet; on Unix its file and directory are created with owner-only permissions. Protect the server account and its data: someone who can read both the master key and the encrypted OTP seed can derive the connection key. The admin token is in `admin.token`; keep it private for use if OTP is reset. While OTP is enabled, it is not accepted for web access. Agent tokens are distinct and grant access only through an approved, named identity.
 
 The browser workspace and API are intended for a trusted local user or a restricted LAN over Hilait's HTTPS mode. An authenticated SSH tunnel is another remote-access option. The server does not expose SSH passwords to agents. Purpose text is an audit commitment, not a semantic sandbox: an approved SSH account retains its normal OS privileges. Use the remote account's permissions to bound its possible effects.
 

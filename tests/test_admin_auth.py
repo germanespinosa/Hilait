@@ -89,11 +89,15 @@ def test_replacing_seed_keeps_old_factor_until_confirmed(tmp_path, monkeypatch):
     auth = app.state.runtime.auth
     first = auth.begin_setup()
     old_session = auth.confirm_setup(totp(first["secret"], clock[0]))
+    app.state.runtime.store.save_profiles([{"id": "one", "name": "Secret machine", "host": "private.example", "username": "user"}])
+    app.state.runtime.store.write("known-hosts.json", {"private.example:22": "fingerprint"})
+    assert b"private.example" not in (tmp_path / "connections.json").read_bytes()
     clock[0] += 31
     replacement = auth.begin_setup(totp(first["secret"], clock[0]))
     assert auth.valid(old_session)
     assert auth.status()["enabled"] is True
     assert replacement["secret"] != first["secret"]
+    assert app.state.runtime.store.profiles()[0]["name"] == "Secret machine"
     auth.cancel_setup()
     assert auth.status() == {"enabled": True, "pending": False}
     clock[0] += 31
@@ -102,6 +106,21 @@ def test_replacing_seed_keeps_old_factor_until_confirmed(tmp_path, monkeypatch):
     assert not auth.valid(old_session)
     assert auth.valid(new_session)
     assert auth.enabled()
+    assert app.state.runtime.store.profiles() == []
+    assert app.state.runtime.store.read("known-hosts.json", {}) == {}
+
+
+def test_first_otp_setup_migrates_legacy_connections(tmp_path):
+    import json
+    app = create_app(tmp_path)
+    store = app.state.runtime.store
+    legacy = [{"id": "old", "name": "Existing machine", "host": "existing.example", "username": "ada"}]
+    (tmp_path / "connections.json").write_text(json.dumps(legacy))
+    assert store.profiles() == []
+    setup = app.state.runtime.auth.begin_setup()
+    app.state.runtime.auth.confirm_setup(totp(setup["secret"], time.time()))
+    assert store.profiles() == legacy
+    assert b"existing.example" not in (tmp_path / "connections.json").read_bytes()
 
 
 def test_local_cli_recovery_resets_seed(tmp_path, monkeypatch):
@@ -109,8 +128,10 @@ def test_local_cli_recovery_resets_seed(tmp_path, monkeypatch):
     auth = app.state.runtime.auth
     setup = auth.begin_setup()
     auth.confirm_setup(totp(setup["secret"], time.time()))
+    app.state.runtime.store.save_profiles([{"id": "one", "name": "Private"}])
     assert auth.enabled()
     monkeypatch.setattr("hilait.storage.user_data_path", lambda *args: tmp_path)
     monkeypatch.setattr(sys, "argv", ["hilait", "otp", "reset"])
     main()
     assert not auth.enabled()
+    assert not (tmp_path / "connections.json").exists()

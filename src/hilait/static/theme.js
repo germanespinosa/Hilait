@@ -2,12 +2,15 @@
   'use strict';
   const key = 'hilait-theme';
   const media = matchMedia('(prefers-color-scheme: light)');
-  const allowed = new Set(['system', 'light', 'dark']);
+  const allowed = new Set(['light', 'dark']);
   let preference;
-  try { preference = localStorage.getItem(key) || 'system'; } catch { preference = 'system'; }
-  if (!allowed.has(preference)) preference = 'system';
+  try { preference = localStorage.getItem(key); } catch {}
+  if (!allowed.has(preference)) {
+    preference = media.matches ? 'light' : 'dark';
+    try { localStorage.setItem(key, preference); } catch {}
+  }
 
-  function resolved() { return preference === 'system' ? (media.matches ? 'light' : 'dark') : preference; }
+  function resolved() { return preference; }
   function apply() {
     const theme = resolved();
     document.documentElement.dataset.theme = theme;
@@ -29,9 +32,8 @@
     if (event.target.closest('[data-theme-toggle]')) set(resolved() === 'dark' ? 'light' : 'dark');
   });
   document.addEventListener('DOMContentLoaded', apply);
-  media.addEventListener('change', () => { if (preference === 'system') apply(); });
   addEventListener('storage', event => {
-    if (event.key === key) { preference = allowed.has(event.newValue) ? event.newValue : 'system'; apply(); }
+    if (event.key === key) { preference = allowed.has(event.newValue) ? event.newValue : (media.matches ? 'light' : 'dark'); apply(); }
   });
   window.HilaitTheme = {get preference() { return preference; }, get resolved() { return resolved(); }, set};
   apply();

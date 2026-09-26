@@ -25,6 +25,10 @@ a { color: var(--accent); }
 .text-button { background: transparent; border: 0; font-size: 22px; line-height: 1; min-width: 36px; padding: 5px; }
 .check { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 500; color: var(--text); }
 .check input, input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; accent-color: var(--primary); margin: 0; flex: none; }
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 14px; color: var(--text); font-size: 13px; font-weight: 500; cursor: pointer; }
+.toggle input[type="checkbox"] { order: 2; display: inline-block; width: 38px; height: 22px; margin: 0; appearance: none; border: 1px solid var(--line); border-radius: 20px; background: radial-gradient(circle at 10px 50%, var(--muted) 0 7px, transparent 8px), var(--button); cursor: pointer; }
+.toggle input[type="checkbox"]:checked { background: radial-gradient(circle at 27px 50%, var(--on-primary) 0 7px, transparent 8px), var(--primary); border-color: var(--primary); }
+.toggle input[type="checkbox"]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 .workspace { display: grid; grid-template-columns: 250px 238px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 32px; height: 100dvh; min-width: 740px; }
 .workspace.no-sessions { grid-template-columns: 250px minmax(0, 1fr); }
@@ -100,7 +104,7 @@ a { color: var(--accent); }
 #settings-content { min-width: 0; }
 #settings-content > p:first-child { margin-top: 0; }
 .settings-heading { margin: 1px 0 13px !important; font-size: 15px !important; }
-.theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.theme-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .theme-options button { min-height: 100px; padding: 14px; text-align: left; background: var(--pane); }
 .theme-options button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
 .theme-options strong, .theme-options small { display: block; }

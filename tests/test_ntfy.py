@@ -10,10 +10,10 @@ from hilait.server import create_app
 
 
 @pytest.mark.asyncio
-async def test_ntfy_settings_delivery_and_protected_decision(tmp_path, monkeypatch):
+async def test_ntfy_settings_delivery_and_protected_decision(tmp_path, monkeypatch, activate_otp):
     app = create_app(tmp_path)
     runtime = app.state.runtime
-    admin = {"Authorization": "Bearer " + runtime.store.admin_token}
+    admin = {"Authorization": "Bearer " + activate_otp(runtime)}
     sent = []
     request_sent = asyncio.Event()
 
@@ -62,15 +62,15 @@ async def test_ntfy_settings_delivery_and_protected_decision(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_expired_request_cannot_be_approved_or_denied(tmp_path):
+async def test_expired_request_cannot_be_approved_or_denied(tmp_path, activate_otp):
     app = create_app(tmp_path)
     runtime = app.state.runtime
+    admin = {"Authorization": "Bearer " + activate_otp(runtime)}
     runtime.store.save_profiles([{"id": "machine-1", "name": "Machine", "host": "localhost", "port": 22,
                                   "username": "user", "allowed_agent_ids": None}])
     agent, _ = runtime.store.create_agent("Agent")
     grant = await runtime.agents.request(agent, "machine-1", "Inspect this machine and report what is available without changing unrelated data or system settings.")
     grant.requested_utc = (datetime.now(timezone.utc) - timedelta(minutes=11)).isoformat()
-    admin = {"Authorization": "Bearer " + runtime.store.admin_token}
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
         assert (await client.get(f"/api/grants/{grant.id}", headers=admin)).json()["state"] == "Expired"
         assert (await client.post(f"/api/grants/{grant.id}/approve", headers=admin, json={})).status_code == 400

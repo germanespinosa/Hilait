@@ -51,6 +51,15 @@
   scrollbar-color: var(--line) var(--terminal-bg);
   scrollbar-width: thin;
 }
+.terminal-caret {
+  position: absolute;
+  z-index: 4;
+  width: 2px;
+  border-radius: 1px;
+  background: #e8f0ec;
+  pointer-events: none;
+}
+.terminal-caret[hidden] { display: none; }
 
 .otp-panel { max-width: 800px; }
 .otp-panel label { display: block; margin-top: 16px; }

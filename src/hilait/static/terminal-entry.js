@@ -22,6 +22,7 @@ window.HilaitTerminalAppearance=terminalAppearance;
 class HilaitTerminal {
   constructor(element, platform = 'unix') {
     this.element = element;
+    this.showWindowsCaret = platform === 'windows';
     this.disposed = false;
     this.opened = false;
     this.fitFrame = 0;
@@ -40,10 +41,20 @@ class HilaitTerminal {
     this.term.onData(data=>this.onInput?.(data)); this.term.onBinary(data=>this.onBinary?.(btoa(data)));
     this.term.onResize(({cols,rows})=>this.onResize?.(cols,rows));
     this.term.attachCustomKeyEventHandler(e=>this._keys(e));
+    if(this.showWindowsCaret) {
+      this.caretEvents = [this.term.onRender(()=>this.updateCaret()),
+        this.term.onScroll(()=>this.updateCaret()),this.term.onResize(()=>this.updateCaret())];
+    }
     this.ready = document.fonts.load('400 14px "Hilait Mono"').catch(()=>[]).then(()=>{
       if(this.disposed)return;
       this.term.open(element);
       this.opened=true;
+      if(this.showWindowsCaret) {
+        const screen=this.term.element.querySelector('.xterm-screen');
+        this.caret=document.createElement('div');
+        this.caret.className='terminal-caret';
+        screen.appendChild(this.caret);
+      }
       this.element.addEventListener('contextmenu',this._context=e=>{e.preventDefault();this._menu(e);});
       this.observer=new ResizeObserver(()=>this.scheduleFit()); this.observer.observe(element);
       this.fit();
@@ -63,13 +74,27 @@ class HilaitTerminal {
   async copy(){const selection=this.term.getSelection();if(selection)await navigator.clipboard.writeText(selection);}
   async paste(){try{const text=await navigator.clipboard.readText();if(text.includes('\n')&&!confirm('Paste multiple lines into the remote terminal? They may execute commands.'))return;this.term.paste(text);}catch{this.onStatus?.('Clipboard access was denied by the browser.');}}
   scheduleFit(){if(this.fitFrame||this.disposed)return;this.fitFrame=requestAnimationFrame(()=>{this.fitFrame=0;this.fit();});}
-  fit(){if(this.opened&&this.element.clientWidth>0&&this.element.clientHeight>0)this.fitAddon.fit();}
-  focus(){this.term.focus();}
+  fit(){if(this.opened&&this.element.clientWidth>0&&this.element.clientHeight>0){this.fitAddon.fit();this.updateCaret();}}
+  updateCaret(){
+    if(!this.caret||this.disposed)return;
+    const buffer=this.term.buffer.active;
+    const screen=this.caret.parentElement;
+    const bounds=screen.getBoundingClientRect();
+    const visible=buffer.type==='normal'&&buffer.baseY===buffer.viewportY&&bounds.width>0&&bounds.height>0;
+    this.caret.hidden=!visible;
+    if(!visible)return;
+    const cellWidth=bounds.width/this.term.cols;
+    const cellHeight=bounds.height/this.term.rows;
+    this.caret.style.left=Math.min(buffer.cursorX,this.term.cols-1)*cellWidth+'px';
+    this.caret.style.top=buffer.cursorY*cellHeight+'px';
+    this.caret.style.height=cellHeight+'px';
+  }
+  focus(){this.term.focus();this.updateCaret();}
   columns(){return this.term.cols;}
   rows(){return this.term.rows;}
-  write(base64){if(base64)this.term.write(Uint8Array.from(atob(base64),char=>char.charCodeAt(0)));}
+  write(base64){if(base64)this.term.write(Uint8Array.from(atob(base64),char=>char.charCodeAt(0)),()=>this.updateCaret());}
   screen(){const buffer=this.term.buffer.active;return {columns:this.term.cols,rows:this.term.rows,cursorX:buffer.cursorX,cursorY:buffer.cursorY,buffer:buffer.type,
     lines:Array.from({length:this.term.rows},(_,row)=>buffer.getLine(buffer.baseY+row)?.translateToString(true)??'')};}
-  dispose(){this.disposed=true;if(this.fitFrame)cancelAnimationFrame(this.fitFrame);this.observer?.disconnect();if(this._context)this.element.removeEventListener('contextmenu',this._context);removeEventListener('hilait-terminal-appearance-change',this._appearanceListener);this.term.dispose();}
+  dispose(){this.disposed=true;if(this.fitFrame)cancelAnimationFrame(this.fitFrame);this.observer?.disconnect();if(this._context)this.element.removeEventListener('contextmenu',this._context);this.caretEvents?.forEach(event=>event.dispose());this.caret?.remove();removeEventListener('hilait-terminal-appearance-change',this._appearanceListener);this.term.dispose();}
 }
 window.HilaitTerminal=HilaitTerminal;

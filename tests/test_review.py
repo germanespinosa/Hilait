@@ -29,6 +29,27 @@ def recorded_session(tmp_path):
     return store, audit
 
 
+def test_light_review_explains_menu_input_without_sending_command_results(tmp_path):
+    store = Store(tmp_path)
+    audit = Audit(store)
+    context = {"grant": "menu-session", "purpose": "Inspect DHCP mappings and DNS rewrites."}
+    audit.write("access_requested", context, {"purpose": context["purpose"]})
+    menu = b"WAN address: 73.176.134.10\r\n  7) Ping host     8) Shell\r\n  9) pfTop         10) Firewall Log\r\nEnter an option: "
+    audit.write("terminal_output", context, {"base64": base64.b64encode(menu).decode()})
+    audit.write("terminal_input_sent", context, {"base64": base64.b64encode(b"8\nsh\n").decode()})
+    audit.write("terminal_output", context, {"base64": base64.b64encode(b"root@gateway:~ # ").decode()})
+    audit.write("terminal_input_sent", context, {"base64": base64.b64encode(b"python3 check.py\n").decode()})
+    evidence = Reviewer(store, audit).evidence("menu-session", "light")
+    first, second = evidence["instructions"]
+    assert first["instruction"] == "8\nsh\n"
+    assert "8) Shell" in first["context_before"]
+    assert "Enter an option:" in first["context_before"]
+    assert "WAN address" not in json.dumps(evidence)
+    assert second["context_before"] == "root@gateway:~ #"
+    assert "terminal_output" not in json.dumps(evidence)
+    assert "numbered menu selection" in review_module.RUBRIC
+
+
 @pytest.mark.asyncio
 async def test_light_excludes_outputs_and_deep_scores_correctness(tmp_path, monkeypatch):
     store, audit = recorded_session(tmp_path)
@@ -77,7 +98,7 @@ async def test_light_excludes_outputs_and_deep_scores_correctness(tmp_path, monk
     assert deep["evidence_refs"]["safety"] == [2]
     assert deep["evidence_refs"]["correctness"] == [3, 6]
     assert deep["findings"][0]["axes"] == ["purpose_alignment"]
-    assert deep["schema_version"] == 2
+    assert deep["schema_version"] == 3
     assert reviewer.pending() == []
 
 

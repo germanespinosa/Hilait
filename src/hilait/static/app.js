@@ -138,7 +138,7 @@
       <div class="actions review-connect"><button type="button" id="connect-models">Connect and load models</button></div>
       <h3>Review</h3>
       <div class="form-grid">
-        <label>Depth<select name="review_level"><option value="light">Light · instructions only</option><option value="deep">Deep · instructions and outputs</option></select></label>
+        <label>Depth<select name="review_level"><option value="light">Light · inputs and prompts</option><option value="deep">Deep · full activity</option></select></label>
         <label>Frequency<select name="mode"><option value="on_demand">On demand</option><option value="automatic">Automatic</option></select></label>
       </div>
       <p class="setting-hint" id="review-depth-hint"></p>
@@ -159,7 +159,7 @@
       const light=form.review_level.value==='light';
       form.alert_correctness.disabled=light;
       $('#review-depth-hint').textContent=light
-        ? 'Sends only the reason for request and agent instructions. Correctness is not scored.'
+        ? 'Sends the reason, agent inputs, and short preceding menu or prompt excerpts. No command results are sent; correctness is not scored.'
         : 'Also sends terminal output and file-operation results to the selected model. Output may contain sensitive data.';
     };
     updateDepth();
@@ -241,7 +241,7 @@
       row.innerHTML=`<strong>${escaped(log.agent||'Agent')} · ${escaped(log.connection||'Connection')}</strong><small>${escaped(log.purpose||'')} · ${new Date(log.lastUtc).toLocaleString()}${log.review?' · '+escaped(log.review.level||'Deep')+' review':''}</small><div class="scores">${['safety','purpose_alignment','correctness'].map(axis=>{const score=log.review?.[axis];return `<span class="score ${score==null?'':score<4?'low':score<7?'mid':'high'}">${escaped(axis.replace('_',' '))} ${score??'—'}</span>`;}).join('')}</div>${log.review?.summary?`<p class="review-summary">${escaped(log.review.summary)}</p>`:''}`;
       row.onclick=()=>showLogDetail(log.grant);
       row.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();showLogDetail(log.grant);}};
-      row.oncontextmenu=e=>{e.preventDefault();menu([...(log.needsReview||log.review?.schema_version!==2?[[`${log.review?'Update':'Run'} ${state.reviewSettings.review_level||'deep'} review`,()=>reviewSession(log.grant)]]:[]),["Export for analysis",()=>exportLog(log.grant)],["Delete log",()=>deleteLog(log.grant)]],e.clientX,e.clientY);};
+      row.oncontextmenu=e=>{e.preventDefault();menu([...(log.needsReview||log.review?.schema_version!==3?[[`${log.review?'Update':'Run'} ${state.reviewSettings.review_level||'deep'} review`,()=>reviewSession(log.grant)]]:[]),["Export for analysis",()=>exportLog(log.grant)],["Delete log",()=>deleteLog(log.grant)]],e.clientX,e.clientY);};
       $('#logs-list').appendChild(row);
     }
   }
@@ -288,7 +288,7 @@
   }
   function logEventLabel(event){
     const data=event.data||{};
-    if(event.kind==='terminal_input_sent')return 'Command · '+logTerminalText(logBytes(data.base64)).trim().split('\n')[0].slice(0,100);
+    if(event.kind==='terminal_input_sent')return 'Terminal input · '+logTerminalText(logBytes(data.base64)).trim().split('\n')[0].slice(0,100);
     if(event.kind==='sudo_requested')return 'Sudo · '+String(data.command||'').slice(0,100);
     if(event.kind==='file_request'||event.kind==='file_result'||event.kind==='file_error')return 'File '+(data.action||'operation')+' · '+(data.path||'');
     if(event.kind==='copy_completed')return 'File transfer · '+(data.path||'');
@@ -307,18 +307,36 @@
     if(finding){const label=['wrong','unnecessary','problematic','dangerous'].includes(finding.label)?finding.label:'problematic';markers+=`<button type="button" class="event-flag ${label}" aria-expanded="false" aria-label="${escaped(label)} finding. Show reason">${escaped(label)}</button><p class="finding-note" hidden>${escaped(finding.rationale)}</p>`;}
     return markers;
   }
+  function menuChoice(input,precedingOutput){
+    if(!/(?:enter|select|choose)[^\n]{0,40}(?:option|choice|number)\s*:/i.test(precedingOutput.slice(-1800)))return '';
+    const choice=input.trim().split('\n')[0].trim();
+    if(!/^\d{1,2}$/.test(choice))return '';
+    for(const line of precedingOutput.split('\n').slice(-40)){
+      for(const match of line.matchAll(/(\d{1,2})\)\s+(.+?)(?=\s+\d{1,2}\)|$)/g)){
+        if(match[1]===choice)return `Menu choice ${choice} → ${match[2].trim()}`;
+      }
+    }
+    return '';
+  }
   function logActivity(events,review){
     const references=reviewReferences(events,review);
     const rows=[];
+    let precedingOutput='';
     for(const event of events){
       const data=event.data||{}, sequence=event.sequence, flag=logMarkers(sequence,review,references);
       const stamp=`<time datetime="${escaped(event.utc)}">${escaped(logTime(event.utc))}</time>`;
       if(event.kind==='terminal_input_sent'){
-        rows.push(`<section class="log-entry command" data-sequence="${sequence}"><div class="log-entry-head"><span>Agent sent · ${stamp}</span>${flag}</div><pre>${escaped(logTerminalText(logBytes(data.base64)))}</pre></section>`);
+        const input=logTerminalText(logBytes(data.base64));
+        const choice=menuChoice(input,precedingOutput);
+        rows.push(`<section class="log-entry command" data-sequence="${sequence}"><div class="log-entry-head"><span>Agent input · ${stamp}</span>${flag}</div>${choice?`<p class="input-context">${escaped(choice)}</p>`:''}<pre>${escaped(input)}</pre></section>`);
+        precedingOutput='';
       }else if(event.kind==='terminal_output'){
-        rows.push(`<section class="log-entry output" data-sequence="${sequence}">${flag?`<div class="log-entry-head"><span>Terminal · ${stamp}</span>${flag}</div>`:''}<pre>${escaped(logTerminalText(logBytes(data.base64)))}</pre></section>`);
+        const output=logTerminalText(logBytes(data.base64));
+        precedingOutput=(precedingOutput+output).slice(-8192);
+        rows.push(`<section class="log-entry output" data-sequence="${sequence}">${flag?`<div class="log-entry-head"><span>Terminal · ${stamp}</span>${flag}</div>`:''}<pre>${escaped(output)}</pre></section>`);
       }else if(event.kind==='human_terminal_input'){
         rows.push(`<section class="log-entry human" data-sequence="${sequence}"><div class="log-entry-head"><span>You typed · ${stamp}</span>${flag}</div><p>Keystrokes hidden to protect passwords.</p></section>`);
+        precedingOutput='';
       }else if(event.kind==='sudo_requested'){
         rows.push(`<section class="log-entry operation" data-sequence="${sequence}"><div class="log-entry-head"><span>Sudo requested · ${stamp}</span>${flag}</div><pre>${escaped(data.command||'')}</pre>${data.reason?`<p>${escaped(data.reason)}</p>`:''}</section>`);
       }else if(event.kind==='sudo_output'){

@@ -166,6 +166,7 @@ a { color: var(--accent); }
 .log-entry pre { margin: 0; color: inherit; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
 .log-entry p { margin: 4px 0 0; color: #bfcbc5; font: 11px/1.5 Inter, ui-sans-serif, sans-serif; overflow-wrap: anywhere; }
 .log-entry .log-path { color: #e8f0ec; font: 12px/1.5 "Hilait Mono", ui-monospace, monospace; }
+.log-entry .input-context { margin: 0 0 6px; color: #a8e5c7; font-size: 11px; font-weight: 650; }
 .log-entry .log-file-content { margin-top: 8px; padding: 8px 10px; color: #e8f0ec; background: #000; border: 1px solid #30433d; border-radius: 5px; }
 .log-file-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 3px 12px; margin: 8px 0 0; padding-left: 19px; color: #dce8e1; }
 .log-entry[data-sequence]:target { outline: 1px solid #9bd7ba; }

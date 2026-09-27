@@ -22,7 +22,6 @@ window.HilaitTerminalAppearance=terminalAppearance;
 class HilaitTerminal {
   constructor(element, platform = 'unix') {
     this.element = element;
-    this.showWindowsCaret = platform === 'windows';
     this.disposed = false;
     this.opened = false;
     this.fitFrame = 0;
@@ -41,20 +40,16 @@ class HilaitTerminal {
     this.term.onData(data=>this.onInput?.(data)); this.term.onBinary(data=>this.onBinary?.(btoa(data)));
     this.term.onResize(({cols,rows})=>this.onResize?.(cols,rows));
     this.term.attachCustomKeyEventHandler(e=>this._keys(e));
-    if(this.showWindowsCaret) {
-      this.caretEvents = [this.term.onRender(()=>this.updateCaret()),
-        this.term.onScroll(()=>this.updateCaret()),this.term.onResize(()=>this.updateCaret())];
-    }
+    this.caretEvents = [this.term.onRender(()=>this.updateCaret()),
+      this.term.onScroll(()=>this.updateCaret()),this.term.onResize(()=>this.updateCaret())];
     this.ready = document.fonts.load('400 14px "Hilait Mono"').catch(()=>[]).then(()=>{
       if(this.disposed)return;
       this.term.open(element);
       this.opened=true;
-      if(this.showWindowsCaret) {
-        const screen=this.term.element.querySelector('.xterm-screen');
-        this.caret=document.createElement('div');
-        this.caret.className='terminal-caret';
-        screen.appendChild(this.caret);
-      }
+      const screen=this.term.element.querySelector('.xterm-screen');
+      this.caret=document.createElement('div');
+      this.caret.className='terminal-caret';
+      screen.appendChild(this.caret);
       this.element.addEventListener('contextmenu',this._context=e=>{e.preventDefault();this._menu(e);});
       this.observer=new ResizeObserver(()=>this.scheduleFit()); this.observer.observe(element);
       this.fit();
@@ -80,13 +75,14 @@ class HilaitTerminal {
     const buffer=this.term.buffer.active;
     const screen=this.caret.parentElement;
     const bounds=screen.getBoundingClientRect();
-    const visible=buffer.type==='normal'&&buffer.baseY===buffer.viewportY&&bounds.width>0&&bounds.height>0;
+    const row=buffer.cursorY+buffer.baseY-buffer.viewportY;
+    const visible=row>=0&&row<this.term.rows&&bounds.width>0&&bounds.height>0;
     this.caret.hidden=!visible;
     if(!visible)return;
     const cellWidth=bounds.width/this.term.cols;
     const cellHeight=bounds.height/this.term.rows;
     this.caret.style.left=Math.min(buffer.cursorX,this.term.cols-1)*cellWidth+'px';
-    this.caret.style.top=buffer.cursorY*cellHeight+'px';
+    this.caret.style.top=row*cellHeight+'px';
     this.caret.style.height=cellHeight+'px';
   }
   focus(){this.term.focus();this.updateCaret();}

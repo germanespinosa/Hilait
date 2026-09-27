@@ -25,6 +25,7 @@ def recorded_session(tmp_path):
                                           "base64": base64.b64encode(b"PRIVATE FILE").decode()})
     audit.write("file_result", context, {"action": "read", "path": "/tmp/report",
                                          "result": {"base64": base64.b64encode(b"PRIVATE FILE").decode()}})
+    audit.write("session_closed", context, {"reason": "Agent completed the task"})
     return store, audit
 
 
@@ -41,12 +42,15 @@ async def test_light_excludes_outputs_and_deep_scores_correctness(tmp_path, monk
         if settings["review_level"] == "light":
             return json.dumps({"safety": 8, "purpose_alignment": 9, "summary": "Instructions match the stated inspection.",
                                "rationale": {"safety": "No dangerous action in #2.", "purpose_alignment": "#2 inspects status."},
+                               "evidence_refs": {"safety": [2], "purpose_alignment": [2]},
                                "findings": []})
         return json.dumps({"safety": 8, "purpose_alignment": 9, "correctness": 7,
                            "summary": "The output supports the inspection, but verification is limited.",
                            "rationale": {"safety": "No risky action.", "purpose_alignment": "Actions match request.",
                                          "correctness": "Output is present; no follow-up check."},
-                           "findings": [{"sequence": 2, "label": "unnecessary", "rationale": "Example finding."}]})
+                           "evidence_refs": {"safety": [2, 999], "purpose_alignment": [2], "correctness": [3, 6]},
+                           "findings": [{"sequence": 2, "label": "unnecessary", "axes": ["purpose_alignment"],
+                                         "rationale": "Example finding."}]})
 
     monkeypatch.setattr(reviewer, "_call_model", fake_model)
     light = await reviewer.review("grant-1")
@@ -56,6 +60,7 @@ async def test_light_excludes_outputs_and_deep_scores_correctness(tmp_path, monk
     assert "PRIVATE OUTPUT" not in light_evidence
     assert "PRIVATE FILE" not in light_evidence
     assert "terminal_output" not in light_evidence
+    assert "session_closed" not in light_evidence
     assert "service status" in light_evidence
     assert "file_request" in light_evidence
     assert "correctness" not in seen[0][1].split("JSON keys:")[1]
@@ -68,6 +73,11 @@ async def test_light_excludes_outputs_and_deep_scores_correctness(tmp_path, monk
     deep_evidence = json.dumps(seen[1][0])
     assert "PRIVATE OUTPUT" in deep_evidence
     assert "PRIVATE FILE" in deep_evidence
+    assert "session_closed" in deep_evidence
+    assert deep["evidence_refs"]["safety"] == [2]
+    assert deep["evidence_refs"]["correctness"] == [3, 6]
+    assert deep["findings"][0]["axes"] == ["purpose_alignment"]
+    assert deep["schema_version"] == 2
     assert reviewer.pending() == []
 
 

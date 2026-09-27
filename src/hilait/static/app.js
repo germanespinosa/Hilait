@@ -241,7 +241,7 @@
       row.innerHTML=`<strong>${escaped(log.agent||'Agent')} · ${escaped(log.connection||'Connection')}</strong><small>${escaped(log.purpose||'')} · ${new Date(log.lastUtc).toLocaleString()}${log.review?' · '+escaped(log.review.level||'Deep')+' review':''}</small><div class="scores">${['safety','purpose_alignment','correctness'].map(axis=>{const score=log.review?.[axis];return `<span class="score ${score==null?'':score<4?'low':score<7?'mid':'high'}">${escaped(axis.replace('_',' '))} ${score??'—'}</span>`;}).join('')}</div>${log.review?.summary?`<p class="review-summary">${escaped(log.review.summary)}</p>`:''}`;
       row.onclick=()=>showLogDetail(log.grant);
       row.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();showLogDetail(log.grant);}};
-      row.oncontextmenu=e=>{e.preventDefault();menu([...(log.needsReview?[[`Run ${state.reviewSettings.review_level||'deep'} review`,()=>reviewSession(log.grant)]]:[]),["Export for analysis",()=>exportLog(log.grant)],["Delete log",()=>deleteLog(log.grant)]],e.clientX,e.clientY);};
+      row.oncontextmenu=e=>{e.preventDefault();menu([...(log.needsReview||log.review?.schema_version!==2?[[`${log.review?'Update':'Run'} ${state.reviewSettings.review_level||'deep'} review`,()=>reviewSession(log.grant)]]:[]),["Export for analysis",()=>exportLog(log.grant)],["Delete log",()=>deleteLog(log.grant)]],e.clientX,e.clientY);};
       $('#logs-list').appendChild(row);
     }
   }
@@ -265,17 +265,53 @@
       return `<pre class="log-file-content">${escaped(content)}</pre>`;
     }catch{return '<p>Binary or invalid recorded content</p>';}
   }
-  function logFlag(sequence,findings){
-    const finding=findings.find(item=>item.sequence===sequence);
-    if(!finding)return '';
-    const label=['wrong','unnecessary','problematic','dangerous'].includes(finding.label)?finding.label:'problematic';
-    return `<button type="button" class="event-flag ${label}" aria-expanded="false" aria-label="${escaped(label)} finding for event ${sequence}. Show reason">${escaped(label)}</button><p class="finding-note" hidden>${escaped(finding.rationale)}</p>`;
+  function axisTitle(axis){return axis==='purpose_alignment'?'Purpose alignment':axis==='safety'?'Safety':'Correctness';}
+  function scoreTone(score){return score<4?'low':score<7?'mid':'high';}
+  function reviewReferences(events,review){
+    const available=new Set(events.map(event=>event.sequence));
+    const map=new Map();
+    if(!review)return map;
+    for(const axis of ['safety','purpose_alignment','correctness']){
+      if(review[axis]==null)continue;
+      let references=review.evidence_refs?.[axis];
+      if(!Array.isArray(references)||!references.length){
+        references=[];
+        const rationale=review.rationale?.[axis]||'';
+        for(const match of rationale.matchAll(/(?:#|(?:commands?|events?|inputs?)\s+(?:in\s+)?)(\d+(?:\s*(?:,|and)\s*\d+)*)/gi)){
+          references.push(...(match[1].match(/\d+/g)||[]).map(Number));
+        }
+      }
+      for(const sequence of references){if(!available.has(sequence))continue;if(!map.has(sequence))map.set(sequence,new Set());map.get(sequence).add(axis);}
+    }
+    for(const finding of review.findings||[]){for(const axis of finding.axes||[]){if(available.has(finding.sequence)&&review[axis]!=null){if(!map.has(finding.sequence))map.set(finding.sequence,new Set());map.get(finding.sequence).add(axis);}}}
+    return map;
+  }
+  function logEventLabel(event){
+    const data=event.data||{};
+    if(event.kind==='terminal_input_sent')return 'Command · '+logTerminalText(logBytes(data.base64)).trim().split('\n')[0].slice(0,100);
+    if(event.kind==='sudo_requested')return 'Sudo · '+String(data.command||'').slice(0,100);
+    if(event.kind==='file_request'||event.kind==='file_result'||event.kind==='file_error')return 'File '+(data.action||'operation')+' · '+(data.path||'');
+    if(event.kind==='copy_completed')return 'File transfer · '+(data.path||'');
+    if(event.kind==='session_closed')return 'Session closed';
+    if(event.kind==='terminal_output'||event.kind==='sudo_output')return 'Terminal output';
+    return event.kind.replaceAll('_',' ');
+  }
+  function logMarkers(sequence,review,references){
+    if(!review)return '';
+    const finding=(review.findings||[]).find(item=>item.sequence===sequence);
+    let markers='';
+    for(const axis of references.get(sequence)||[]){
+      const score=review[axis];
+      markers+=`<button type="button" class="event-score ${scoreTone(score)}" data-axis="${axis}" aria-expanded="false" aria-label="${escaped(axisTitle(axis))} score ${score} out of 10. Show rationale">${escaped(axisTitle(axis))} ${score}/10</button><p class="finding-note" hidden>${escaped(review.rationale?.[axis]||'')}</p>`;
+    }
+    if(finding){const label=['wrong','unnecessary','problematic','dangerous'].includes(finding.label)?finding.label:'problematic';markers+=`<button type="button" class="event-flag ${label}" aria-expanded="false" aria-label="${escaped(label)} finding. Show reason">${escaped(label)}</button><p class="finding-note" hidden>${escaped(finding.rationale)}</p>`;}
+    return markers;
   }
   function logActivity(events,review){
-    const findings=review?.findings||[];
+    const references=reviewReferences(events,review);
     const rows=[];
     for(const event of events){
-      const data=event.data||{}, sequence=event.sequence, flag=logFlag(sequence,findings);
+      const data=event.data||{}, sequence=event.sequence, flag=logMarkers(sequence,review,references);
       const stamp=`<time datetime="${escaped(event.utc)}">${escaped(logTime(event.utc))}</time>`;
       if(event.kind==='terminal_input_sent'){
         rows.push(`<section class="log-entry command" data-sequence="${sequence}"><div class="log-entry-head"><span>Agent sent · ${stamp}</span>${flag}</div><pre>${escaped(logTerminalText(logBytes(data.base64)))}</pre></section>`);
@@ -298,9 +334,12 @@
         rows.push(`<section class="log-entry operation failed" data-sequence="${sequence}"><div class="log-entry-head"><span>${event.kind==='file_error'?'File operation failed':'Session error'} · ${stamp}</span>${flag}</div><p>${escaped(data.path||'')}${data.path?' · ':''}${escaped(data.error||'Unknown error')}</p></section>`);
       }else if(event.kind==='copy_completed'){
         rows.push(`<section class="log-entry operation result" data-sequence="${sequence}"><div class="log-entry-head"><span>File transfer completed · ${stamp}</span>${flag}</div><p class="log-path">${escaped(data.path||'')} → ${escaped(data.destination||'')}</p><p>${escaped(data.direction||'Transfer')}${data.bytes!=null?` · ${escaped(data.bytes)} bytes`:''}</p></section>`);
+      }else if(event.kind==='session_closed'){
+        rows.push(`<section class="log-entry lifecycle" data-sequence="${sequence}"><div class="log-entry-head"><span>Session closed · ${stamp}</span>${flag}</div>${data.reason?`<p>${escaped(data.reason)}</p>`:''}</section>`);
       }
     }
-    return `<div class="activity-intro"><strong>Recorded activity</strong><span>Terminal output is from the shared session and may include human activity.</span></div><div class="activity-transcript">${rows.join('')||'<p class="empty-message">No terminal or file activity was recorded.</p>'}</div>`;
+    const scores=review?`<div class="activity-scores"><span>Session scores</span>${['safety','purpose_alignment','correctness'].filter(axis=>review[axis]!=null).map(axis=>`<span class="score ${scoreTone(review[axis])}">${escaped(axisTitle(axis))} ${review[axis]}/10</span>`).join('')}</div>`:'';
+    return `<div class="activity-intro"><strong>Recorded activity</strong><span>Terminal output is from the shared session and may include human activity.</span></div>${scores}${review?'<p class="activity-key">Score badges mark evidence cited by the review. Click one to see why it matters.</p>':''}<div class="activity-transcript">${rows.join('')||'<p class="empty-message">No terminal or file activity was recorded.</p>'}</div>`;
   }
   function logDetails(events){
     const first=events.find(event=>event.kind==='access_requested')||events[0];
@@ -326,10 +365,15 @@
       if(which==='review'){
         const review=detail.review;
         const axes=['safety','purpose_alignment','correctness'].filter(axis=>review[axis]!=null);
-        const scores=axes.map(axis=>`<span class="score ${review[axis]<4?'low':review[axis]<7?'mid':'high'}">${escaped(axis.replace('_',' '))} ${review[axis]}/10</span>`).join('');
-        const rationales=axes.map(axis=>`<div class="setting-row"><strong>${escaped(axis.replace('_',' '))}</strong><p>${escaped(review.rationale?.[axis]||'')}</p></div>`).join('');
-        const findings=(review.findings||[]).map(finding=>`<button type="button" class="review-finding ${escaped(finding.label)}" data-find-sequence="${Number(finding.sequence)}"><strong>${escaped(finding.label)} · Event ${Number(finding.sequence)}</strong><span>${escaped(finding.rationale)}</span><small>View in activity →</small></button>`).join('')||'<p>No specific events flagged.</p>';
-        box.innerHTML=`<small class="review-meta">${escaped((review.level||'deep').toUpperCase())} REVIEW · ${escaped(review.provider||'Local')} · ${escaped(review.model||'')}</small><div class="scores">${scores}${review.correctness==null?'<span class="score">Correctness not scored</span>':''}</div>${review.summary?`<div class="setting-row review-overview"><strong>Summary</strong><p>${escaped(review.summary)}</p></div>`:''}${rationales}<h3>Flagged events</h3>${findings}`;
+        const references=reviewReferences(detail.events,review);
+        const scores=axes.map(axis=>`<span class="score ${scoreTone(review[axis])}">${escaped(axisTitle(axis))} ${review[axis]}/10</span>`).join('');
+        const rationales=axes.map(axis=>{
+          const linked=detail.events.filter(event=>references.get(event.sequence)?.has(axis)).slice(0,3);
+          const links=linked.map(event=>`<button type="button" class="evidence-link" data-find-sequence="${event.sequence}" data-axis="${axis}">${escaped(logEventLabel(event))}<span>View in activity →</span></button>`).join('');
+          return `<div class="setting-row review-axis"><div class="review-axis-head"><strong>${escaped(axisTitle(axis))}</strong><span class="score ${scoreTone(review[axis])}">${review[axis]}/10</span></div><p>${escaped(review.rationale?.[axis]||'')}</p>${links?`<div class="evidence-links">${links}</div>`:''}</div>`;
+        }).join('');
+        const findings=(review.findings||[]).map(finding=>`<button type="button" class="review-finding ${escaped(finding.label)}" data-find-sequence="${Number(finding.sequence)}"><strong>${escaped(finding.label)} · ${escaped(logEventLabel(detail.events.find(event=>event.sequence===finding.sequence)||{kind:'recorded_event'}))}</strong><span>${escaped(finding.rationale)}</span><small>View in activity →</small></button>`).join('')||'<p>No individual action was flagged.</p>';
+        box.innerHTML=`<small class="review-meta">${escaped((review.level||'deep').toUpperCase())} REVIEW · ${escaped(review.provider||'Local')} · ${escaped(review.model||'')}</small><div class="scores">${scores}${review.correctness==null?'<span class="score">Correctness not scored</span>':''}</div>${review.summary?`<div class="setting-row review-overview"><strong>Summary</strong><p>${escaped(review.summary)}</p></div>`:''}${rationales}<h3>Specific findings</h3>${findings}`;
       }else if(which==='details'){
         box.innerHTML=logDetails(detail.events);
       }else{
@@ -339,9 +383,9 @@
     $('#modal .modal-tabs').onclick=event=>{if(event.target.dataset.tab)paint(event.target.dataset.tab);};
     $('#log-detail').onclick=event=>{
       const link=event.target.closest('[data-find-sequence]');
-      if(link){paint('activity');requestAnimationFrame(()=>{const target=$('#log-detail [data-sequence="'+link.dataset.findSequence+'"]');target?.scrollIntoView({block:'center',behavior:'smooth'});target?.querySelector('.event-flag')?.click();});return;}
-      const flag=event.target.closest('.event-flag');
-      if(flag){const note=flag.closest('.log-entry').querySelector('.finding-note');const open=note.hidden;note.hidden=!open;flag.setAttribute('aria-expanded',String(open));}
+      if(link){paint('activity');requestAnimationFrame(()=>{const target=$('#log-detail [data-sequence="'+link.dataset.findSequence+'"]');target?.scrollIntoView({block:'center',behavior:'smooth'});target?.classList.add('highlighted');setTimeout(()=>target?.classList.remove('highlighted'),3500);const selector=link.dataset.axis?`.event-score[data-axis="${link.dataset.axis}"]`:'.event-flag';target?.querySelector(selector)?.click();});return;}
+      const marker=event.target.closest('.event-flag,.event-score');
+      if(marker){const note=marker.nextElementSibling;if(!note?.classList.contains('finding-note'))return;const open=note.hidden;note.hidden=!open;marker.setAttribute('aria-expanded',String(open));}
     };
     paint(tab);
   }

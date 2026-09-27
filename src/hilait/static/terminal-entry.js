@@ -20,13 +20,19 @@ const terminalAppearance = {
 window.HilaitTerminalAppearance=terminalAppearance;
 
 class HilaitTerminal {
-  constructor(element) {
+  constructor(element, platform = 'unix') {
     this.element = element;
     this.disposed = false;
     this.opened = false;
     this.fitFrame = 0;
     this.term = new Terminal({allowProposedApi:true,fontFamily:terminalFonts[terminalAppearance.font],fontSize:terminalAppearance.size,fontWeight:400,fontWeightBold:700,lineHeight:1.12,letterSpacing:0,cursorStyle:'bar',cursorWidth:2,cursorInactiveStyle:'bar',cursorBlink:false,scrollback:20000,screenReaderMode:true,
       theme:terminalTheme});
+    if(platform==='windows') {
+      // Windows OpenSSH/cmd can leave DECTCEM off at the prompt. Keep the caret
+      // visible in the normal buffer while respecting full-screen TUI modes.
+      this.term.parser.registerCsiHandler({prefix:'?',final:'l'}, params =>
+        params.length===1 && params[0]===25 && this.term.buffer.active.type==='normal');
+    }
     this._appearanceListener=()=>{this.term.options.fontFamily=terminalFonts[terminalAppearance.font];this.term.options.fontSize=terminalAppearance.size;this.scheduleFit();};
     addEventListener('hilait-terminal-appearance-change',this._appearanceListener);
     this.fitAddon = new FitAddon(); this.searchAddon = new SearchAddon();

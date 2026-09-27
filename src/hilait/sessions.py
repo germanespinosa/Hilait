@@ -36,6 +36,24 @@ class _TrustPolicy(paramiko.MissingHostKeyPolicy):
             raise HostKeyApprovalNeeded(endpoint, fingerprint, previous)
 
 
+def _shell_start_command(profile: dict) -> str | None:
+    shell = profile.get("shell", "default")
+    if shell == "powershell7" and profile.get("platform") == "windows":
+        # OpenSSH often starts cmd.exe even when PowerShell 7 was selected. Use
+        # the built-in Windows PowerShell to select pwsh when it is installed,
+        # or keep the session usable with Windows PowerShell when it is not.
+        return ('powershell.exe -NoLogo -NoProfile -Command '
+                '"if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) '
+                '{ & pwsh.exe -NoLogo } else '
+                '{ Write-Host \'PowerShell 7 is not installed; using Windows PowerShell 5.1.\'; '
+                '& powershell.exe -NoLogo }"\r')
+    if shell == "powershell7":
+        return "pwsh -NoLogo\r"
+    if shell == "powershell5":
+        return "powershell.exe -NoLogo\r"
+    return None
+
+
 @dataclass
 class Session:
     id: str
@@ -99,11 +117,9 @@ class SessionManager:
                                allow_agent=False, look_for_keys=False, timeout=20, auth_timeout=20, banner_timeout=20)
                 channel = client.invoke_shell(term="xterm-256color", width=100, height=30)
                 channel.settimeout(1)
-                shell = profile.get("shell", "default")
-                if shell == "powershell7":
-                    channel.send("pwsh.exe -NoLogo\r")
-                elif shell == "powershell5":
-                    channel.send("powershell.exe -NoLogo\r")
+                start_command = _shell_start_command(profile)
+                if start_command:
+                    channel.send(start_command)
                 return client, channel
             except Exception:
                 client.close()

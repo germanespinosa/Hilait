@@ -82,7 +82,9 @@
   }
   async function openTerminal(sessionId) {
     terminalSocket?.close(); terminal?.dispose(); $('#terminal').innerHTML = '';
-    const current = new window.HilaitTerminal($('#terminal')); current.sessionId = sessionId; terminal = current;
+    const profileId = state.sessions.find(item=>item.id===sessionId)?.profile;
+    const platform = state.profiles.find(item=>item.id===profileId)?.platform;
+    const current = new window.HilaitTerminal($('#terminal'),platform); current.sessionId = sessionId; terminal = current;
     await current.ready;
     if (terminal !== current || selectedSession !== sessionId) return;
     const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/terminal/${sessionId}?token=${encodeURIComponent(token)}`;

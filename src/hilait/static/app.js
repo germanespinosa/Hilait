@@ -245,10 +245,81 @@
       $('#logs-list').appendChild(row);
     }
   }
+  function logTime(value){const date=new Date(value);return Number.isNaN(date.getTime())?String(value||'Unknown time'):date.toLocaleString();}
+  function logBytes(value){
+    try{const bytes=Uint8Array.from(atob(value||''),char=>char.charCodeAt(0));return new TextDecoder('utf-8').decode(bytes);}
+    catch{return '[Recorded terminal data could not be decoded]';}
+  }
+  function logTerminalText(value){
+    return value.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g,'').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'')
+      .replace(/\x1b[()][A-Za-z0-9]/g,'').replace(/\r\n/g,'\n').replace(/\r/g,'\n')
+      .replace(/[\x00-\x08\x0b-\x1f\x7f]/g,'');
+  }
+  function logFileContent(value){
+    if(value==null)return '';
+    try{
+      const bytes=Uint8Array.from(atob(value),char=>char.charCodeAt(0));
+      if(!bytes.length)return '<p>Empty file content</p>';
+      const content=new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+      if(/[\x00-\x08\x0b\x0e-\x1f]/.test(content))return `<p>Binary content · ${bytes.length} bytes</p>`;
+      return `<pre class="log-file-content">${escaped(content)}</pre>`;
+    }catch{return '<p>Binary or invalid recorded content</p>';}
+  }
+  function logFlag(sequence,findings){
+    const finding=findings.find(item=>item.sequence===sequence);
+    if(!finding)return '';
+    const label=['wrong','unnecessary','problematic','dangerous'].includes(finding.label)?finding.label:'problematic';
+    return `<button type="button" class="event-flag ${label}" aria-expanded="false" aria-label="${escaped(label)} finding for event ${sequence}. Show reason">${escaped(label)}</button><p class="finding-note" hidden>${escaped(finding.rationale)}</p>`;
+  }
+  function logActivity(events,review){
+    const findings=review?.findings||[];
+    const rows=[];
+    for(const event of events){
+      const data=event.data||{}, sequence=event.sequence, flag=logFlag(sequence,findings);
+      const stamp=`<time datetime="${escaped(event.utc)}">${escaped(logTime(event.utc))}</time>`;
+      if(event.kind==='terminal_input_sent'){
+        rows.push(`<section class="log-entry command" data-sequence="${sequence}"><div class="log-entry-head"><span>Agent sent · ${stamp}</span>${flag}</div><pre>${escaped(logTerminalText(logBytes(data.base64)))}</pre></section>`);
+      }else if(event.kind==='terminal_output'){
+        rows.push(`<section class="log-entry output" data-sequence="${sequence}">${flag?`<div class="log-entry-head"><span>Terminal · ${stamp}</span>${flag}</div>`:''}<pre>${escaped(logTerminalText(logBytes(data.base64)))}</pre></section>`);
+      }else if(event.kind==='human_terminal_input'){
+        rows.push(`<section class="log-entry human" data-sequence="${sequence}"><div class="log-entry-head"><span>You typed · ${stamp}</span>${flag}</div><p>Keystrokes hidden to protect passwords.</p></section>`);
+      }else if(event.kind==='sudo_requested'){
+        rows.push(`<section class="log-entry operation" data-sequence="${sequence}"><div class="log-entry-head"><span>Sudo requested · ${stamp}</span>${flag}</div><pre>${escaped(data.command||'')}</pre>${data.reason?`<p>${escaped(data.reason)}</p>`:''}</section>`);
+      }else if(event.kind==='sudo_output'){
+        rows.push(`<section class="log-entry output" data-sequence="${sequence}"><div class="log-entry-head"><span>Sudo output · exit ${escaped(data.exitCode??'unknown')} · ${stamp}</span>${flag}</div><pre>${escaped(logTerminalText(logBytes(data.base64)))}</pre></section>`);
+      }else if(event.kind==='file_request'){
+        rows.push(`<section class="log-entry operation" data-sequence="${sequence}"><div class="log-entry-head"><span>File ${escaped(data.action||'operation')} · ${stamp}</span>${flag}</div><p class="log-path">${escaped(data.path||'')}</p>${data.destination?`<p>Destination: ${escaped(data.destination)}</p>`:''}${data.action==='write'?logFileContent(data.base64):''}</section>`);
+      }else if(event.kind==='file_result'){
+        const result=data.result||{};
+        const summary=result.entries?`${result.entries.length} items returned`:[result.size!=null?`${result.size} bytes`:null,result.count!=null?`${result.count} bytes read`:null,result.written!=null?`${result.written} bytes written`:null,result.mode?`Mode ${result.mode}`:null,result.created||result.deleted||result.destination||null].filter(Boolean).join(' · ')||'Completed';
+        const listing=result.entries?`<ul class="log-file-list">${result.entries.map(item=>`<li>${escaped(item.name||'Unnamed entry')}</li>`).join('')}</ul>`:'';
+        rows.push(`<section class="log-entry operation result" data-sequence="${sequence}"><div class="log-entry-head"><span>File ${escaped(data.action||'operation')} completed · ${stamp}</span>${flag}</div><p class="log-path">${escaped(data.path||'')}</p><p>${escaped(summary)}</p>${listing}${data.action==='read'?logFileContent(result.base64):''}</section>`);
+      }else if(event.kind==='file_error'||event.kind==='session_error'){
+        rows.push(`<section class="log-entry operation failed" data-sequence="${sequence}"><div class="log-entry-head"><span>${event.kind==='file_error'?'File operation failed':'Session error'} · ${stamp}</span>${flag}</div><p>${escaped(data.path||'')}${data.path?' · ':''}${escaped(data.error||'Unknown error')}</p></section>`);
+      }else if(event.kind==='copy_completed'){
+        rows.push(`<section class="log-entry operation result" data-sequence="${sequence}"><div class="log-entry-head"><span>File transfer completed · ${stamp}</span>${flag}</div><p class="log-path">${escaped(data.path||'')} → ${escaped(data.destination||'')}</p><p>${escaped(data.direction||'Transfer')}${data.bytes!=null?` · ${escaped(data.bytes)} bytes`:''}</p></section>`);
+      }
+    }
+    return `<div class="activity-intro"><strong>Recorded activity</strong><span>Terminal output is from the shared session and may include human activity.</span></div><div class="activity-transcript">${rows.join('')||'<p class="empty-message">No terminal or file activity was recorded.</p>'}</div>`;
+  }
+  function logDetails(events){
+    const first=events.find(event=>event.kind==='access_requested')||events[0];
+    if(!first)return '<p class="empty-message">No session details were recorded.</p>';
+    const context=first.context||{}, request=first.data||{};
+    const opened=events.find(event=>event.kind==='session_opened');
+    const states=events.filter(event=>event.kind==='access_state_changed'||event.kind.startsWith('automatic_approval_'));
+    const lastState=[...states].reverse().find(event=>event.data?.state);
+    const line=(label,value)=>value==null||value===''?'':`<div class="detail-item"><dt>${escaped(label)}</dt><dd>${escaped(value)}</dd></div>`;
+    const timeline=states.map(event=>`<li><time datetime="${escaped(event.utc)}">${escaped(logTime(event.utc))}</time><strong>${escaped(event.data?.state||event.kind.replaceAll('_',' '))}</strong>${event.data?.reason?`<span>${escaped(event.data.reason)}</span>`:''}${event.data?.expires_utc?`<span>Until ${escaped(logTime(event.data.expires_utc))}</span>`:''}</li>`).join('');
+    const closed=events.find(event=>event.kind==='session_closed');
+    return `<div class="detail-section"><h3>Connection</h3><dl class="detail-grid">${line('Machine',context.connection)}${line('Endpoint',opened?.data?.endpoint)}${line('Session ID',opened?.context?.session||context.session)}${line('Connection ID',context.profile)}</dl></div>
+      <div class="detail-section"><h3>Request</h3><dl class="detail-grid">${line('Agent',context.agent)}${line('Agent ID',context.agentId)}${line('Requested',logTime(first.utc))}${line('File access',request.fileAccess||context.fileAccess||'None')}${line('Request ID',context.grant)}</dl><div class="detail-purpose"><strong>Reason for request</strong><p>${escaped(request.purpose||context.purpose||'None recorded')}</p></div></div>
+      <div class="detail-section"><h3>Authorization</h3><dl class="detail-grid">${line('Last recorded state',lastState?.data?.state||(closed?'Closed':'Pending'))}${line('Session closed',closed?logTime(closed.utc):null)}${line('Close reason',closed?.data?.reason)}</dl>${timeline?`<ol class="detail-timeline">${timeline}</ol>`:'<p>No authorization decision was recorded.</p>'}</div>`;
+  }
   async function showLogDetail(grantId, tab='activity'){
     const detail=await api(`/api/logs/${grantId}`);
-    openModal(head('Agent session','Review the stated purpose and recorded activity.')+
-      `<nav class="modal-tabs"><button data-tab="activity">Activity</button>${detail.review?'<button data-tab="review">Review</button>':''}</nav><div id="log-detail"></div>`);
+    openModal(head('Agent session')+
+      `<nav class="modal-tabs" aria-label="Session sections"><button type="button" data-tab="activity">Activity</button>${detail.review?'<button type="button" data-tab="review">Review</button>':''}<button type="button" data-tab="details">Details</button></nav><div id="log-detail"></div>`);
     const paint=which=>{
       const box=$('#log-detail');
       $('#modal .modal-tabs').querySelectorAll('button').forEach(button=>button.classList.toggle('active',button.dataset.tab===which));
@@ -257,15 +328,21 @@
         const axes=['safety','purpose_alignment','correctness'].filter(axis=>review[axis]!=null);
         const scores=axes.map(axis=>`<span class="score ${review[axis]<4?'low':review[axis]<7?'mid':'high'}">${escaped(axis.replace('_',' '))} ${review[axis]}/10</span>`).join('');
         const rationales=axes.map(axis=>`<div class="setting-row"><strong>${escaped(axis.replace('_',' '))}</strong><p>${escaped(review.rationale?.[axis]||'')}</p></div>`).join('');
-        const findings=(review.findings||[]).map(finding=>`<div class="setting-row"><strong>#${finding.sequence} · ${escaped(finding.label)}</strong><p>${escaped(finding.rationale)}</p></div>`).join('')||'<p>No specific events flagged.</p>';
+        const findings=(review.findings||[]).map(finding=>`<button type="button" class="review-finding ${escaped(finding.label)}" data-find-sequence="${Number(finding.sequence)}"><strong>${escaped(finding.label)} · Event ${Number(finding.sequence)}</strong><span>${escaped(finding.rationale)}</span><small>View in activity →</small></button>`).join('')||'<p>No specific events flagged.</p>';
         box.innerHTML=`<small class="review-meta">${escaped((review.level||'deep').toUpperCase())} REVIEW · ${escaped(review.provider||'Local')} · ${escaped(review.model||'')}</small><div class="scores">${scores}${review.correctness==null?'<span class="score">Correctness not scored</span>':''}</div>${review.summary?`<div class="setting-row review-overview"><strong>Summary</strong><p>${escaped(review.summary)}</p></div>`:''}${rationales}<h3>Flagged events</h3>${findings}`;
+      }else if(which==='details'){
+        box.innerHTML=logDetails(detail.events);
       }else{
-        const reason=detail.events.find(event=>event.context?.purpose)?.context.purpose||'';
-        const events=detail.events.map(event=>`[${event.utc} #${event.sequence}] ${event.kind}\n${JSON.stringify(event.data,null,2)}`).join('\n\n');
-        box.innerHTML=`<div class="setting-row"><strong>Reason for request</strong><p>${escaped(reason)}</p></div><div class="code">${escaped(events)}</div><p id="review-progress">${escaped(detail.progress||'')}</p>`;
+        box.innerHTML=logActivity(detail.events,detail.review)+`<p id="review-progress" role="status">${escaped(detail.progress||'')}</p>`;
       }
     };
     $('#modal .modal-tabs').onclick=event=>{if(event.target.dataset.tab)paint(event.target.dataset.tab);};
+    $('#log-detail').onclick=event=>{
+      const link=event.target.closest('[data-find-sequence]');
+      if(link){paint('activity');requestAnimationFrame(()=>{const target=$('#log-detail [data-sequence="'+link.dataset.findSequence+'"]');target?.scrollIntoView({block:'center',behavior:'smooth'});target?.querySelector('.event-flag')?.click();});return;}
+      const flag=event.target.closest('.event-flag');
+      if(flag){const note=flag.closest('.log-entry').querySelector('.finding-note');const open=note.hidden;note.hidden=!open;flag.setAttribute('aria-expanded',String(open));}
+    };
     paint(tab);
   }
   async function reviewSession(id){closeModal();status('Reviewing session…');try{await api(`/api/review/${id}`,'POST',{});await showLogDetail(id,'review');status('Review complete');}catch(error){status('Review failed: '+error.message);toast(error.message,true);}}

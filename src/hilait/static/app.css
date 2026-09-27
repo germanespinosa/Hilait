@@ -146,6 +146,47 @@ a { color: var(--accent); }
 .review-overview { margin-top: 16px; }
 .review-summary { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .empty-message { margin: 0; padding: 18px 2px 4px; color: var(--muted); }
+.activity-intro { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 10px; }
+.activity-intro strong { font-size: 13px; }
+.activity-intro span { color: var(--muted); font-size: 11px; }
+.activity-transcript { max-height: min(62dvh, 650px); overflow: auto; padding: 8px 0; color: #e8f0ec; background: #000; border: 1px solid var(--line); border-radius: 9px; font-family: "Hilait Mono", ui-monospace, monospace; font-size: 12px; line-height: 1.5; }
+.log-entry { padding: 8px 15px; scroll-margin: 24px; }
+.log-entry + .log-entry.output { padding-top: 0; }
+.log-entry.command, .log-entry.operation, .log-entry.human { margin: 8px; padding: 10px 12px; background: #101c1b; border-left: 3px solid #5ba488; border-radius: 5px; }
+.log-entry.operation { border-left-color: #829eb1; }
+.log-entry.failed { border-left-color: #e27c77; }
+.log-entry.human { border-left-color: #b2a172; }
+.log-entry-head { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 12px; margin-bottom: 5px; color: #a9c8bb; font: 11px/1.4 Inter, ui-sans-serif, sans-serif; }
+.log-entry-head time { color: #88a69b; }
+.log-entry pre { margin: 0; color: inherit; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
+.log-entry p { margin: 4px 0 0; color: #bfcbc5; font: 11px/1.5 Inter, ui-sans-serif, sans-serif; overflow-wrap: anywhere; }
+.log-entry .log-path { color: #e8f0ec; font: 12px/1.5 "Hilait Mono", ui-monospace, monospace; }
+.log-entry .log-file-content { margin-top: 8px; padding: 8px 10px; color: #e8f0ec; background: #000; border: 1px solid #30433d; border-radius: 5px; }
+.log-file-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 3px 12px; margin: 8px 0 0; padding-left: 19px; color: #dce8e1; }
+.log-entry[data-sequence]:target { outline: 1px solid #9bd7ba; }
+.event-flag { min-height: 24px; padding: 2px 8px; border-radius: 5px; font-size: 11px; font-weight: 650; text-transform: capitalize; }
+.event-flag.wrong, .review-finding.wrong { color: #ffd296; border-color: #8a622e; background: #382917; }
+.event-flag.unnecessary, .review-finding.unnecessary { color: #c9c0f5; border-color: #6b5b9b; background: #29243d; }
+.event-flag.problematic, .review-finding.problematic { color: #ffb799; border-color: #995643; background: #3d2720; }
+.event-flag.dangerous, .review-finding.dangerous { color: #ffb5ae; border-color: #a74d4d; background: #482628; }
+.log-entry .finding-note { flex-basis: 100%; margin: 0; padding: 8px 10px; color: #f3efe7; background: #273330; border-radius: 5px; }
+.review-finding { display: block; width: 100%; margin: 8px 0; padding: 11px 13px; text-align: left; border-radius: 8px; }
+.review-finding strong, .review-finding span, .review-finding small { display: block; }
+.review-finding strong { text-transform: capitalize; }
+.review-finding span { margin-top: 4px; color: var(--text); font-size: 12px; }
+.review-finding small { margin-top: 7px; color: var(--muted); font-size: 11px; }
+.detail-section { margin: 0 0 15px; padding: 17px; background: var(--pane); border: 1px solid var(--line); border-radius: 9px; }
+.detail-section h3 { margin: 0 0 14px; font-size: 14px; }
+.detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px 24px; margin: 0; }
+.detail-item dt { color: var(--muted); font-size: 11px; }
+.detail-item dd { margin: 3px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.detail-purpose { margin-top: 17px; padding-top: 14px; border-top: 1px solid var(--line); }
+.detail-purpose strong { font-size: 12px; }
+.detail-purpose p { margin: 6px 0 0; color: var(--text); white-space: pre-wrap; }
+.detail-timeline { display: grid; gap: 10px; margin: 17px 0 0; padding-left: 19px; }
+.detail-timeline li time, .detail-timeline li strong, .detail-timeline li span { display: block; font-size: 12px; }
+.detail-timeline li time, .detail-timeline li span { color: var(--muted); }
+@media (max-width: 560px) { .detail-grid { grid-template-columns: 1fr; } }
 
 .login-shell { display: grid; place-items: center; min-height: 100dvh; padding: 20px; }
 .login-card { width: min(420px, 100%); padding: 30px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }

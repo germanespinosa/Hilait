@@ -24,6 +24,7 @@ class HilaitTerminal {
     this.element = element;
     this.disposed = false;
     this.opened = false;
+    this.overwriteMode = false;
     this.fitFrame = 0;
     this.term = new Terminal({allowProposedApi:true,fontFamily:terminalFonts[terminalAppearance.font],fontSize:terminalAppearance.size,fontWeight:400,fontWeightBold:700,lineHeight:1.12,letterSpacing:0,cursorStyle:'bar',cursorWidth:2,cursorInactiveStyle:'bar',cursorBlink:false,scrollback:20000,screenReaderMode:true,
       theme:terminalTheme});
@@ -37,7 +38,7 @@ class HilaitTerminal {
     addEventListener('hilait-terminal-appearance-change',this._appearanceListener);
     this.fitAddon = new FitAddon(); this.searchAddon = new SearchAddon();
     this.term.loadAddon(this.fitAddon); this.term.loadAddon(this.searchAddon); this.term.loadAddon(new Unicode11Addon()); this.term.loadAddon(new UnicodeGraphemesAddon()); this.term.unicode.activeVersion='11';
-    this.term.onData(data=>this.onInput?.(data)); this.term.onBinary(data=>this.onBinary?.(btoa(data)));
+    this.term.onData(data=>this.onInput?.(this._input(data))); this.term.onBinary(data=>this.onBinary?.(btoa(data)));
     this.term.onResize(({cols,rows})=>this.onResize?.(cols,rows));
     this.term.attachCustomKeyEventHandler(e=>this._keys(e));
     this.caretEvents = [this.term.onRender(()=>this.updateCaret()),
@@ -56,6 +57,10 @@ class HilaitTerminal {
     });
   }
   _keys(e){
+    if((e.key==='Insert'||e.code==='Insert')&&!e.ctrlKey&&!e.altKey&&!e.metaKey&&!e.shiftKey&&this.term.buffer.active.type==='normal'){
+      if(e.type==='keydown'&&!e.repeat){this.overwriteMode=!this.overwriteMode;this.updateCaret();this.onStatus?.(this.overwriteMode?'Overwrite mode':'Insert mode');}
+      e.preventDefault();return false;
+    }
     if(e.type!=='keydown'||!e.ctrlKey||e.altKey||e.metaKey||e.isComposing)return true;
     if(e.code==='KeyC'&&(e.shiftKey||this.term.hasSelection())){e.preventDefault();this.copy();return false;}
     if(e.code==='KeyV'){e.preventDefault();this.paste();return false;}
@@ -64,6 +69,14 @@ class HilaitTerminal {
     if(e.key==='+'||e.key==='='||e.code==='NumpadAdd'){e.preventDefault();terminalAppearance.set(terminalAppearance.font,Math.min(24,terminalAppearance.size+1));return false;}
     if(e.key==='-'||e.code==='NumpadSubtract'){e.preventDefault();terminalAppearance.set(terminalAppearance.font,Math.max(10,terminalAppearance.size-1));return false;}
     return true;
+  }
+  _input(data){
+    if(/[\r\n\x03]/.test(data)&&this.overwriteMode){this.overwriteMode=false;this.updateCaret();this.onStatus?.('Insert mode');}
+    if(!this.overwriteMode||this.term.buffer.active.type!=='normal'||/[\x00-\x1f\x7f]/.test(data))return data;
+    // Readline often leaves Insert unbound; Delete then type replaces one
+    // grapheme using the remote shell's own line editor.
+    const parts=typeof Intl.Segmenter==='function'?Array.from(new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(data),part=>part.segment):Array.from(data);
+    return parts.map(part=>'\x1b[3~'+part).join('');
   }
   _menu(e){const existing=document.querySelector('.terminal-context');existing?.remove();const box=document.createElement('div');box.className='context-menu terminal-context';box.style.left=e.clientX+'px';box.style.top=e.clientY+'px';for(const [label,callback] of [['Copy',()=>this.copy()],['Paste',()=>this.paste()]]){const button=document.createElement('button');button.textContent=label;button.onclick=()=>{box.remove();callback();};box.appendChild(button);}document.body.appendChild(box);setTimeout(()=>document.addEventListener('click',()=>box.remove(),{once:true}),0);}
   async copy(){const selection=this.term.getSelection();if(selection)await navigator.clipboard.writeText(selection);}
@@ -81,16 +94,14 @@ class HilaitTerminal {
     if(!visible)return;
     const cellWidth=bounds.width/this.term.cols;
     const cellHeight=bounds.height/this.term.rows;
-    const cell=buffer.getLine(buffer.baseY+buffer.cursorY)?.getCell(buffer.cursorX);
-    const continuation=cell?.getWidth()===0;
+    const continuation=buffer.getLine(buffer.baseY+buffer.cursorY)?.getCell(buffer.cursorX)?.getWidth()===0;
     const column=continuation?Math.max(0,buffer.cursorX-1):Math.min(buffer.cursorX,this.term.cols-1);
-    // Inset the bar only in an empty cell after the text. When editing, put it
-    // at the boundary before the character rather than over that character.
-    const occupied=continuation||!!cell?.getChars();
-    const inset=occupied?0:Math.min(4,Math.max(2,cellWidth*0.35));
-    this.caret.style.left=(column*cellWidth+inset)+'px';
-    this.caret.style.top=row*cellHeight+'px';
-    this.caret.style.height=cellHeight+'px';
+    // Keep a fixed offset so deleting the last character cannot move the caret.
+    const inset=Math.min(2,cellWidth*0.2);
+    this.caret.style.left=(column*cellWidth+(this.overwriteMode?0:inset))+'px';
+    this.caret.style.top=(row*cellHeight+(this.overwriteMode?cellHeight-2:0))+'px';
+    this.caret.style.width=this.overwriteMode?cellWidth+'px':'2px';
+    this.caret.style.height=this.overwriteMode?'2px':cellHeight+'px';
   }
   focus(){this.term.focus();this.updateCaret();}
   columns(){return this.term.cols;}

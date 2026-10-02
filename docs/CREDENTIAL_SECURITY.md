@@ -1,6 +1,6 @@
 # How Hilait protects credentials
 
-This describes Hilait 0.1.27 and the hardened Linux service configuration in
+This describes Hilait 0.1.28 and the hardened Linux service configuration in
 [`deploy/hilait.service`](../deploy/hilait.service). It distinguishes encrypted
 storage from access to secrets while the service is running.
 
@@ -47,6 +47,12 @@ responses or audit records. Human terminal keystrokes are redacted, but remote
 terminal output and file contents can contain sensitive information and are
 included in encrypted audit records. A command can also print a secret, so
 avoid printing credentials in terminals.
+
+Browser admin session tokens travel in HTTP authorization headers or as the
+first authenticated WebSocket message, not in WebSocket URLs. Earlier versions
+put those tokens in URLs that Uvicorn could write to the system journal;
+restarting Hilait invalidates those old in-memory sessions. Protect or rotate
+old journal archives according to their retention policy.
 
 An SSH private-key **path** saved in a machine profile refers to a separate
 file. Hilait does not import or encrypt that file. If private-key login is

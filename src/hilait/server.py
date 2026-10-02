@@ -84,7 +84,7 @@ def create_app(root: Path | None = None) -> FastAPI:
         for session_id in list(runtime.sessions.sessions):
             await runtime.sessions.close(session_id, "Hilait stopped")
 
-    app = FastAPI(title="Hilait", version="0.1.27", lifespan=lifespan)
+    app = FastAPI(title="Hilait", version="0.1.28", lifespan=lifespan)
     app.state.runtime = runtime
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     review_runs: dict[str, asyncio.Lock] = {}
@@ -579,10 +579,9 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @app.websocket("/ws/events")
     async def events(websocket: WebSocket):
-        if not _valid_socket(websocket, runtime):
-            await websocket.close(code=4401)
+        token = await _authenticate_socket(websocket, runtime)
+        if token is None:
             return
-        await websocket.accept()
         queue: asyncio.Queue = asyncio.Queue()
         runtime.agents.notifications.add(queue)
         try:
@@ -592,7 +591,7 @@ def create_app(root: Path | None = None) -> FastAPI:
                     item = await asyncio.wait_for(queue.get(), timeout=5)
                 except asyncio.TimeoutError:
                     item = None
-                if not _valid_socket(websocket, runtime):
+                if not _valid_socket(websocket, runtime, token):
                     await websocket.close(code=4401)
                     break
                 if item is not None:
@@ -604,15 +603,14 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @app.websocket("/ws/terminal/{session_id}")
     async def terminal(websocket: WebSocket, session_id: str):
-        if not _valid_socket(websocket, runtime):
-            await websocket.close(code=4401)
+        token = await _authenticate_socket(websocket, runtime)
+        if token is None:
             return
         try:
             session = runtime.sessions.get(session_id)
         except KeyError:
             await websocket.close(code=4404)
             return
-        await websocket.accept()
         queue: asyncio.Queue = asyncio.Queue()
         session.listeners.add(queue)
         await websocket.send_json({"type": "output", **session.read()})
@@ -622,7 +620,7 @@ def create_app(root: Path | None = None) -> FastAPI:
                     item = await asyncio.wait_for(queue.get(), timeout=5)
                 except asyncio.TimeoutError:
                     item = None
-                if not _valid_socket(websocket, runtime):
+                if not _valid_socket(websocket, runtime, token):
                     await websocket.close(code=4401)
                     return
                 if item is None:
@@ -632,7 +630,7 @@ def create_app(root: Path | None = None) -> FastAPI:
         try:
             while True:
                 item = await websocket.receive_json()
-                if not _valid_socket(websocket, runtime):
+                if not _valid_socket(websocket, runtime, token):
                     await websocket.close(code=4401)
                     break
                 kind = item.get("type")
@@ -654,11 +652,29 @@ def create_app(root: Path | None = None) -> FastAPI:
     return app
 
 
-def _valid_socket(websocket: WebSocket, runtime: Runtime) -> bool:
-    token = websocket.query_params.get("token", "")
+def _valid_socket(websocket: WebSocket, runtime: Runtime, token: str) -> bool:
     origin = websocket.headers.get("origin", "")
     host = websocket.headers.get("host", "")
     return runtime.auth.valid(token) and origin in {"http://" + host, "https://" + host}
+
+
+async def _authenticate_socket(websocket: WebSocket, runtime: Runtime) -> str | None:
+    origin = websocket.headers.get("origin", "")
+    host = websocket.headers.get("host", "")
+    if origin not in {"http://" + host, "https://" + host}:
+        await websocket.close(code=4401)
+        return None
+    await websocket.accept()
+    try:
+        message = await asyncio.wait_for(websocket.receive_json(), timeout=5)
+    except (asyncio.TimeoutError, WebSocketDisconnect, RuntimeError, ValueError):
+        await websocket.close(code=4401)
+        return None
+    token = message.get("token", "") if isinstance(message, dict) and message.get("type") == "auth" else ""
+    if not _valid_socket(websocket, runtime, token):
+        await websocket.close(code=4401)
+        return None
+    return token
 
 
 async def run_agent_tool(runtime: Runtime, identity: dict, tool: str, payload: dict) -> Any:

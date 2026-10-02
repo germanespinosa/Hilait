@@ -65,4 +65,4 @@ def main() -> None:
     if args.open:
         webbrowser.open(url + ("/" if otp_enabled else "/#token=" + app.state.runtime.store.admin_token))
     uvicorn.run(app, host="0.0.0.0" if args.lan else args.host, port=args.port,
-                log_level="info", **uvicorn_options)
+                log_level="info", timeout_graceful_shutdown=30, **uvicorn_options)

@@ -70,11 +70,18 @@ def test_otp_blocks_raw_token_websockets_and_rate_limits(tmp_path, monkeypatch):
     admin_token = app.state.runtime.store.admin_token
     with TestClient(app) as client:
         with pytest.raises(WebSocketDisconnect) as rejected:
-            with client.websocket_connect(f"/ws/events?token={admin_token}", headers={"origin": "http://testserver"}) as ws:
+            with client.websocket_connect("/ws/events", headers={"origin": "http://testserver"}) as ws:
+                ws.send_json({"type": "auth", "token": admin_token})
                 ws.receive_json()
         assert rejected.value.code == 4401
-        with client.websocket_connect(f"/ws/events?token={session}", headers={"origin": "http://testserver"}) as ws:
+        with client.websocket_connect("/ws/events", headers={"origin": "http://testserver"}) as ws:
+            ws.send_json({"type": "auth", "token": session})
             assert ws.receive_json()["type"] == "state"
+        with pytest.raises(WebSocketDisconnect) as rejected:
+            with client.websocket_connect(f"/ws/events?token={session}", headers={"origin": "http://testserver"}) as ws:
+                ws.send_json({"type": "auth", "token": "invalid"})
+                ws.receive_json()
+        assert rejected.value.code == 4401
     for _ in range(5):
         with pytest.raises(ValueError):
             auth.verify_login("invalid")

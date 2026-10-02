@@ -81,10 +81,14 @@ class HilaitTerminal {
     if(!visible)return;
     const cellWidth=bounds.width/this.term.cols;
     const cellHeight=bounds.height/this.term.rows;
-    // A bar at the cell boundary touches the previous glyph. Draw only our
-    // inset caret so the insertion point is unambiguously in the empty cell.
-    const inset=Math.min(4,Math.max(2,cellWidth*0.35));
-    this.caret.style.left=(Math.min(buffer.cursorX,this.term.cols-1)*cellWidth+inset)+'px';
+    const cell=buffer.getLine(buffer.baseY+buffer.cursorY)?.getCell(buffer.cursorX);
+    const continuation=cell?.getWidth()===0;
+    const column=continuation?Math.max(0,buffer.cursorX-1):Math.min(buffer.cursorX,this.term.cols-1);
+    // Inset the bar only in an empty cell after the text. When editing, put it
+    // at the boundary before the character rather than over that character.
+    const occupied=continuation||!!cell?.getChars();
+    const inset=occupied?0:Math.min(4,Math.max(2,cellWidth*0.35));
+    this.caret.style.left=(column*cellWidth+inset)+'px';
     this.caret.style.top=row*cellHeight+'px';
     this.caret.style.height=cellHeight+'px';
   }

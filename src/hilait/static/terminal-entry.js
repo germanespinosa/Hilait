@@ -4,7 +4,7 @@ import {SearchAddon} from '@xterm/addon-search';
 import {Unicode11Addon} from '@xterm/addon-unicode11';
 import {UnicodeGraphemesAddon} from '@xterm/addon-unicode-graphemes';
 
-const terminalTheme = {background:'#000000',foreground:'#e8f0ec',cursor:'#e8f0ec',selectionBackground:'#31594b',black:'#121a16',red:'#ff9998',green:'#8fd1aa',yellow:'#e5c681',blue:'#92b9ef',magenta:'#d3a7e4',cyan:'#8bd1d0',white:'#e8f0ec',brightBlack:'#8fa9a0'};
+const terminalTheme = {background:'#000000',foreground:'#e8f0ec',cursor:'#000000',cursorAccent:'#000000',selectionBackground:'#31594b',black:'#121a16',red:'#ff9998',green:'#8fd1aa',yellow:'#e5c681',blue:'#92b9ef',magenta:'#d3a7e4',cyan:'#8bd1d0',white:'#e8f0ec',brightBlack:'#8fa9a0'};
 const terminalFonts = {
   jetbrains:'"Hilait Mono", ui-monospace, monospace',
   system:'ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace',
@@ -81,7 +81,10 @@ class HilaitTerminal {
     if(!visible)return;
     const cellWidth=bounds.width/this.term.cols;
     const cellHeight=bounds.height/this.term.rows;
-    this.caret.style.left=Math.min(buffer.cursorX,this.term.cols-1)*cellWidth+'px';
+    // A bar at the cell boundary touches the previous glyph. Draw only our
+    // inset caret so the insertion point is unambiguously in the empty cell.
+    const inset=Math.min(4,Math.max(2,cellWidth*0.35));
+    this.caret.style.left=(Math.min(buffer.cursorX,this.term.cols-1)*cellWidth+inset)+'px';
     this.caret.style.top=row*cellHeight+'px';
     this.caret.style.height=cellHeight+'px';
   }

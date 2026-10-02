@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .agents import AgentRuntime, ENDED, SCOPES
 from .admin_auth import AdminAuth, RateLimitError
+from .enrollment import AgentEnrollment
 from .files import FileService
 from .ntfy import NtfyNotifier
 from .review import ENDPOINTS, Reviewer
@@ -34,6 +35,7 @@ class Runtime:
         self.sessions = SessionManager(self.store, self.audit)
         self.files = FileService(self.sessions, self.audit)
         self.agents = AgentRuntime(self.store, self.audit, self.sessions, self.files)
+        self.enrollment = AgentEnrollment(self.store, self.audit)
         self.ntfy = NtfyNotifier(self.store, self.audit)
         self.agents.on_pending = self.ntfy.notify_pending
         self.reviewer = Reviewer(self.store, self.audit)
@@ -50,6 +52,7 @@ class Runtime:
                          for session in self.sessions.sessions.values()],
             "agents": [{k: v for k, v in agent.items() if k not in {"token", "token_hash"}}
                        for agent in self.store.agents()],
+            "tokenRequests": self.enrollment.pending(),
             "grants": [grant.public() for grant in self.agents.grants.values()],
             "authorizations": self.agents.authorizations(),
             "reviewSettings": self.reviewer.public_settings(),
@@ -81,7 +84,7 @@ def create_app(root: Path | None = None) -> FastAPI:
         for session_id in list(runtime.sessions.sessions):
             await runtime.sessions.close(session_id, "Hilait stopped")
 
-    app = FastAPI(title="Hilait", version="0.1.25", lifespan=lifespan)
+    app = FastAPI(title="Hilait", version="0.1.26", lifespan=lifespan)
     app.state.runtime = runtime
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     review_runs: dict[str, asyncio.Lock] = {}
@@ -146,6 +149,17 @@ def create_app(root: Path | None = None) -> FastAPI:
     @app.get("/health")
     async def health():
         return {"status": "ready"}
+
+    @app.get("/.well-known/hilait")
+    async def agent_discovery(request: Request, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        scheme = "https" if request.headers.get("x-forwarded-proto", "").lower() == "https" else request.url.scheme
+        url = f"{scheme}://{request.url.netloc}"
+        return {"name": "Hilait", "server_url": url,
+                "mcp": {"command": "hilait", "args": ["mcp", "--server", url]},
+                "enrollment": {"request": "/api/agent-enrollment",
+                               "status": "/api/agent-enrollment/{id}/status"},
+                "instructions": "Install the hilait package, add this MCP server, call request_agent_token with your name and reason, and poll agent_token_status until the OTP-signed-in administrator approves. Machine access needs separate approval."}
 
     @app.get("/api/auth/mode")
     async def auth_mode(response: Response):
@@ -213,6 +227,47 @@ def create_app(root: Path | None = None) -> FastAPI:
     @app.get("/api/state", dependencies=[Depends(admin)])
     async def state():
         return runtime.state()
+
+    @app.post("/api/agent-enrollment")
+    async def request_agent_token(payload: dict, request: Request, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        if not runtime.auth.enabled():
+            raise PermissionError("The Hilait admin must set up OTP before agents can enroll.")
+        result = runtime.enrollment.create(str(payload.get("name", "")),
+                                           str(payload.get("reason", "")),
+                                           request.client.host if request.client else "unknown")
+        runtime.agents._notify({"type": "agent_token_request"})
+        return result
+
+    @app.post("/api/agent-enrollment/{request_id}/status")
+    async def agent_token_status(request_id: uuid.UUID, payload: dict, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        return runtime.enrollment.status(str(request_id), str(payload.get("claim", "")))
+
+    @app.post("/api/agent-enrollment/{request_id}/approve", dependencies=[Depends(admin)])
+    async def approve_agent_token(request_id: uuid.UUID, payload: dict):
+        if not runtime.auth.enabled():
+            raise PermissionError("Sign in with OTP to approve agent tokens.")
+        selected = set(payload.get("connection_ids", []))
+        if not selected <= {profile["id"] for profile in runtime.store.profiles()}:
+            raise ValueError("Unknown connection in permissions.")
+        pending = next((item for item in runtime.enrollment.pending()
+                        if item["id"] == str(request_id)), None)
+        if not pending:
+            raise ValueError("Pending token request not found.")
+        entry, token = runtime.store.create_agent(pending["name"])
+        await agent_permissions(entry["id"], {"connection_ids": list(selected)})
+        result = runtime.enrollment.decide(str(request_id), True, token)
+        runtime.agents._notify({"type": "agent_token_approved"})
+        return {**result, "agent_id": entry["id"]}
+
+    @app.post("/api/agent-enrollment/{request_id}/reject", dependencies=[Depends(admin)])
+    async def reject_agent_token(request_id: uuid.UUID):
+        if not runtime.auth.enabled():
+            raise PermissionError("Sign in with OTP to reject agent tokens.")
+        result = runtime.enrollment.decide(str(request_id), False)
+        runtime.agents._notify({"type": "agent_token_denied"})
+        return result
 
     @app.post("/api/profiles", dependencies=[Depends(admin)])
     async def save_profile(payload: dict):

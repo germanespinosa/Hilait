@@ -3,29 +3,82 @@
 from __future__ import annotations
 
 import os
+import hashlib
+import json
+from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from mcp.server.mcpserver import MCPServer
+from platformdirs import user_data_path
+
+from .storage import atomic_json
 
 
-def build_mcp() -> MCPServer:
-    token = os.environ.get("HILAIT_AGENT_TOKEN", "")
-    if not token:
-        raise RuntimeError("HILAIT_AGENT_TOKEN is required. Copy an agent configuration from Hilait settings.")
-    base = os.environ.get("HILAIT_SERVER_URL", "http://127.0.0.1:8765").rstrip("/")
+def build_mcp(server_url: str | None = None, ca_cert: str | None = None) -> MCPServer:
+    base = (server_url or os.environ.get("HILAIT_SERVER_URL") or "http://127.0.0.1:8765").rstrip("/")
+    parsed = urlsplit(base)
+    if (parsed.scheme != "https" and not (parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost", "::1"})) or not parsed.netloc or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("Use a full HTTPS Hilait URL (HTTP is allowed only on loopback).")
+    verify = ca_cert or os.environ.get("HILAIT_CA_CERT") or True
+    credential_file = Path(user_data_path("Hilait", "Hilait")) / "agent-clients" / (hashlib.sha256(base.encode()).hexdigest() + ".json")
+    saved = json.loads(credential_file.read_text(encoding="utf-8")) if credential_file.exists() else {}
+    token = os.environ.get("HILAIT_AGENT_TOKEN") or saved.get("token", "")
     mcp = MCPServer("Hilait")
 
-    def call(tool: str, payload: dict):
-        with httpx.Client(timeout=650) as client:
-            response = client.post(f"{base}/agent/{tool}", json=payload,
-                                   headers={"Authorization": "Bearer " + token})
+    def post(path: str, payload: dict, *, authenticated: bool = False) -> dict:
+        nonlocal token
+        headers = {"Authorization": "Bearer " + token} if authenticated and token else {}
+        if authenticated and not token:
+            raise ValueError("No agent token yet. Request one and wait for administrator approval.")
+        with httpx.Client(timeout=650, verify=verify) as client:
+            response = client.post(base + path, json=payload, headers=headers)
             if response.is_error:
                 try:
-                    message = response.json().get("error") or response.text
+                    message = response.json().get("error") or response.json().get("detail") or response.text
                 except ValueError:
                     message = response.text
+                if (authenticated and response.status_code == 403 and
+                        message == "Agent token is invalid or revoked." and
+                        not os.environ.get("HILAIT_AGENT_TOKEN")):
+                    token = ""
+                    saved.pop("token", None)
+                    atomic_json(credential_file, saved)
                 raise ValueError(message)
             return response.json()
+
+    def call(tool: str, payload: dict):
+        return post(f"/agent/{tool}", payload, authenticated=True)
+
+    @mcp.tool(description="Ask the OTP-signed-in Hilait administrator to create an agent identity for this server. Use this before other tools when no token has been configured. State who you are and why you need access; no machine access is granted automatically.")
+    def request_agent_token(name: str, reason: str) -> dict:
+        if token:
+            return {"state": "Already enrolled", "ready": True}
+        if saved.get("pending"):
+            return {"id": saved["pending"]["id"], "state": "Pending", "instruction": "Call agent_token_status to check the decision."}
+        result = post("/api/agent-enrollment", {"name": name, "reason": reason})
+        saved["pending"] = {"id": result["id"], "claim": result.pop("claim")}
+        atomic_json(credential_file, saved)
+        return {**result, "instruction": "Wait for the Hilait administrator to approve this request, then call agent_token_status."}
+
+    @mcp.tool(description="Check the pending agent-token request. Once the OTP-signed-in administrator approves it, the token is saved privately on this computer and the other Hilait tools become available.")
+    def agent_token_status() -> dict:
+        nonlocal token
+        pending = saved.get("pending")
+        if not pending:
+            return {"state": "Ready" if token else "No request", "ready": bool(token)}
+        result = post(f"/api/agent-enrollment/{pending['id']}/status", {"claim": pending["claim"]})
+        state = result["state"]
+        if state == "Approved":
+            token = result["token"]
+            saved["token"] = token
+            saved.pop("pending", None)
+            atomic_json(credential_file, saved)
+            return {"state": state, "ready": True, "instruction": "Token stored locally. You can now list permitted connections."}
+        if state in {"Denied", "Expired"}:
+            saved.pop("pending", None)
+            atomic_json(credential_file, saved)
+        return {"state": state, "ready": False}
 
     @mcp.tool(description="List only the saved machines this registered agent may request. Names and IDs only; no usernames, hosts, or secrets. Each request still needs human approval.")
     def connections() -> list[dict]:

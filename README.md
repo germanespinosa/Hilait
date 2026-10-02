@@ -78,7 +78,22 @@ Windows SSH machines can launch PowerShell 7 or Windows PowerShell 5.1 in the PT
 
 Open **Settings → Agent Access → Create agent access**. Hilait creates a named identity and a unique secret token. Copy its MCP configuration into the agent's client. It runs the installed `hilait mcp` command and connects to the local server. Keep the server running while agents work.
 
-The MCP process exposes ten tools: `connections`, `request_access`, `access_status`, `release_access`, `terminal_write`, `terminal_read`, `terminal_screen`, `files`, `copy`, and `request_sudo`. The `connections` result contains only permitted display names and IDs, without usernames or hostnames. Set **Allowed connections** per agent or choose an agent restriction when editing a machine. New machines allow all registered agents by default; permission to *request* a machine is not approval to *use* it.
+For a remote agent, you can instead give it **only your full HTTPS Hilait URL**. Install the `hilait` package on the agent's computer and add this MCP server, replacing the example URL with your instance:
+
+```json
+{
+  "mcpServers": {
+    "hilait": {
+      "command": "hilait",
+      "args": ["mcp", "--server", "https://hilait.example.com"]
+    }
+  }
+}
+```
+
+The agent calls `request_agent_token(name, reason)`, then `agent_token_status()` while you review the request under **Settings → Agent Access**. You must have OTP configured and be signed in with OTP to approve it. Choose the machines the new agent may see; none are selected by default. Approval creates its identity and the MCP bridge privately saves the token on the agent's computer. The token and its private claim secret never need to be pasted into the agent's prompt or MCP configuration. Rejection or a ten-minute timeout grants nothing. The bridge keeps the token for later runs; revoke it at any time in Agent Access. For a self-signed HTTPS instance, trust its certificate and set `--ca-cert /path/to/certificate.pem` in the MCP args. The server also exposes `POST /api/agent-enrollment` and `POST /api/agent-enrollment/{id}/status` for non-MCP clients; the status call requires the private claim returned when the request was created.
+
+The MCP process also exposes the two enrollment tools above and ten machine tools: `connections`, `request_access`, `access_status`, `release_access`, `terminal_write`, `terminal_read`, `terminal_screen`, `files`, `copy`, and `request_sudo`. The `connections` result contains only permitted display names and IDs, without usernames or hostnames. Set **Allowed connections** per agent or choose an agent restriction when editing a machine. New machines allow all registered agents by default; permission to *request* a machine is not approval to *use* it.
 
 An agent requests one machine, a detailed purpose of 80–8000 characters, and the file scope it needs: `None`, `Remote`, or `LocalTransfers`. The human reviews the agent, machine, purpose, and requested file scope. Approving opens a new SSH session; rejecting ends the request. File access cannot be silently added to an existing grant. A timed authorization covers only that agent on that specific machine with the approved file scope or less. Different machines always need separate authorization. Settings can create, extend, and revoke per-agent, per-machine authorizations. Pending requests expire after ten minutes.
 

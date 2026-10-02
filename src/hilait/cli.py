@@ -19,14 +19,16 @@ def main() -> None:
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--open", action="store_true", help="open the browser at the local login screen")
     serve.add_argument("--lan", action="store_true", help="serve HTTPS on the local network using a persistent self-signed certificate")
-    sub.add_parser("mcp", help="run the personal stdio MCP bridge")
+    mcp = sub.add_parser("mcp", help="run the personal stdio MCP bridge")
+    mcp.add_argument("--server", help="full HTTPS URL of the Hilait instance")
+    mcp.add_argument("--ca-cert", help="trusted CA certificate for a private HTTPS instance")
     otp = sub.add_parser("otp", help="manage the local web authenticator")
     otp_sub = otp.add_subparsers(dest="otp_command", required=True)
     otp_sub.add_parser("reset", help="remove the OTP seed from this server account (stop Hilait first)")
     args = parser.parse_args()
     if args.command == "mcp":
-        from .mcp_server import run
-        run()
+        from .mcp_server import build_mcp
+        build_mcp(args.server, args.ca_cert).run(transport="stdio")
         return
     if args.command == "otp":
         from .storage import Store

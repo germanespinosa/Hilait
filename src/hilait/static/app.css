@@ -124,6 +124,10 @@ a { color: var(--accent); }
 .setting-row small, .log-row small { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
 .setting-row p { margin: 7px 0 0; }
 .setting-row .actions { margin-top: 12px; justify-content: flex-start; }
+.setting-row code { display: inline-block; margin-top: 9px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--text); overflow-wrap: anywhere; }
+.token-request { border-left: 3px solid var(--accent); }
+.token-machine-choices { margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; max-height: 220px; overflow: auto; }
+.token-machine-choices .setting-row { margin: 6px 0 0; padding: 8px 10px; }
 .setting-row.check { display: flex; }
 .log-row { cursor: pointer; }
 .log-row:hover { background: var(--surface-soft); }

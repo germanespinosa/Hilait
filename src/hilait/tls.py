@@ -14,6 +14,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
+from .storage import _atomic_bytes, _private_file
+
 
 def lan_addresses() -> list[str]:
     """Best-effort local IPv4 addresses to print and put into the certificate."""
@@ -34,12 +36,14 @@ def lan_addresses() -> list[str]:
                   and not ipaddress.ip_address(address).is_link_local)
 
 
-def ensure_lan_certificate(root: Path) -> tuple[Path, Path, str, list[str]]:
+def ensure_lan_certificate(root: Path, key_password: str | None = None) -> tuple[Path, Path, str, list[str]]:
     """Create a self-signed server certificate once, preserving its fingerprint."""
     certificate = root / "lan.crt"
     private_key = root / "lan.key"
     addresses = lan_addresses()
-    if not (certificate.is_file() and private_key.is_file()):
+    if certificate.exists() != private_key.exists():
+        raise FileNotFoundError("Hilait LAN certificate and private key must both be present or both be absent.")
+    if not certificate.exists():
         key = rsa.generate_private_key(public_exponent=65537, key_size=3072)
         name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Hilait LAN")])
         alternatives = [x509.DNSName("localhost"), x509.DNSName(socket.gethostname()),
@@ -53,15 +57,27 @@ def ensure_lan_certificate(root: Path) -> tuple[Path, Path, str, list[str]]:
                   .add_extension(x509.SubjectAlternativeName(alternatives), critical=False)
                   .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
                   .sign(key, hashes.SHA256()))
+        protection = (serialization.BestAvailableEncryption(key_password.encode("ascii"))
+                      if key_password else serialization.NoEncryption())
         key_bytes = key.private_bytes(serialization.Encoding.PEM,
-                                      serialization.PrivateFormat.PKCS8,
-                                      serialization.NoEncryption())
+                                      serialization.PrivateFormat.PKCS8, protection)
         cert_bytes = signed.public_bytes(serialization.Encoding.PEM)
         root.mkdir(parents=True, exist_ok=True)
         for path, contents, mode in ((private_key, key_bytes, 0o600), (certificate, cert_bytes, 0o644)):
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
             with os.fdopen(fd, "wb") as stream:
                 stream.write(contents)
+    _private_file(private_key)
+    key_bytes = private_key.read_bytes()
+    if key_password and b"BEGIN ENCRYPTED PRIVATE KEY" not in key_bytes:
+        legacy = serialization.load_pem_private_key(key_bytes, password=None)
+        _atomic_bytes(private_key, legacy.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+            serialization.BestAvailableEncryption(key_password.encode("ascii"))))
+    loaded = serialization.load_pem_private_key(
+        private_key.read_bytes(), password=key_password.encode("ascii") if key_password else None)
     parsed = x509.load_pem_x509_certificate(certificate.read_bytes())
+    if loaded.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo) != parsed.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo):
+        raise ValueError("Hilait LAN certificate does not match its private key.")
     fingerprint = hashlib.sha256(parsed.public_bytes(serialization.Encoding.DER)).hexdigest()
     return certificate, private_key, fingerprint, addresses

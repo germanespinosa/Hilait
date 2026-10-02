@@ -46,8 +46,10 @@ def main() -> None:
     url = f"{protocol}://127.0.0.1:{args.port}"
     uvicorn_options = {}
     if args.lan:
-        certificate, private_key, fingerprint, addresses = ensure_lan_certificate(app.state.runtime.store.root)
-        uvicorn_options = {"ssl_certfile": str(certificate), "ssl_keyfile": str(private_key)}
+        key_password = app.state.runtime.store.tls_password()
+        certificate, private_key, fingerprint, addresses = ensure_lan_certificate(app.state.runtime.store.root, key_password)
+        uvicorn_options = {"ssl_certfile": str(certificate), "ssl_keyfile": str(private_key),
+                           "ssl_keyfile_password": key_password}
         for address in addresses:
             print(f"Hilait LAN: https://{address}:{args.port}", flush=True)
         if not addresses:

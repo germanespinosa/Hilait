@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import os
 import secrets
+import stat
 import tempfile
 import threading
 import uuid
@@ -23,6 +25,42 @@ def utc_now() -> str:
 
 
 CONNECTION_FILES = {"connections.json", "known-hosts.json", "authorizations.json"}
+
+
+def _private_file(path: Path) -> None:
+    """Reject redirected or shared secret files before reading them."""
+    details = path.lstat()
+    if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+        raise PermissionError(f"Hilait secret must be a regular, unlinked file: {path}")
+    if os.name != "nt":
+        if details.st_uid != os.geteuid() or details.st_mode & 0o077:
+            raise PermissionError(f"Hilait secret must be owned by this account and mode 0600: {path}")
+
+
+def _private_directory(path: Path) -> None:
+    details = path.lstat()
+    if not stat.S_ISDIR(details.st_mode):
+        raise PermissionError(f"Hilait data directory must not be a symlink: {path}")
+    if os.name != "nt":
+        if details.st_uid != os.geteuid() or details.st_mode & 0o077:
+            raise PermissionError(f"Hilait data directory must be owned by this account and mode 0700: {path}")
+
+
+def _atomic_bytes(path: Path, value: bytes) -> None:
+    if path.is_symlink():
+        raise PermissionError(f"Hilait secret must not be a symlink: {path}")
+    fd, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(value)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        if os.name != "nt":
+            path.chmod(0o600)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def atomic_json(path: Path, value: Any) -> None:
@@ -43,26 +81,42 @@ def atomic_json(path: Path, value: Any) -> None:
 
 class Store:
     def __init__(self, root: Path | None = None) -> None:
-        self.root = Path(root or user_data_path("Hilait", "Hilait"))
-        self.root.mkdir(parents=True, exist_ok=True)
-        if os.name != "nt":
-            self.root.chmod(0o700)
+        configured_root = os.environ.get("HILAIT_DATA_DIR") if root is None else None
+        if configured_root and not Path(configured_root).is_absolute():
+            raise ValueError("HILAIT_DATA_DIR must be an absolute path.")
+        self.root = Path(root or configured_root or user_data_path("Hilait", "Hilait"))
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _private_directory(self.root)
         self.lock = threading.RLock()
-        key_path = self.root / "master.key"
-        if not key_path.exists():
+        credential_directory = os.environ.get("CREDENTIALS_DIRECTORY")
+        external_key = os.environ.get("HILAIT_MASTER_KEY_FILE")
+        if not external_key and credential_directory:
+            external_key = str(Path(credential_directory) / "master.key")
+        if external_key and not Path(external_key).is_absolute():
+            raise ValueError("The external Hilait master-key path must be absolute.")
+        key_path = Path(external_key) if external_key else self.root / "master.key"
+        if external_key and (self.root / "master.key").exists():
+            raise PermissionError("Remove the old data-directory master.key after securely moving it to the credential source.")
+        if not external_key and not key_path.exists():
             fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "wb") as stream:
                 stream.write(Fernet.generate_key())
-        self.cipher = Fernet(key_path.read_bytes())
+        _private_file(key_path)
+        self.master_key = key_path.read_bytes()
+        self.cipher = Fernet(self.master_key)
         self.token_path = self.root / "admin.token"
         if not self.token_path.exists():
-            fd = os.open(self.token_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "w", encoding="ascii") as stream:
-                stream.write(secrets.token_urlsafe(40))
+            _atomic_bytes(self.token_path, self.cipher.encrypt(secrets.token_urlsafe(40).encode("ascii")))
+        else:
+            _private_file(self.token_path)
+            stored = self.token_path.read_bytes().strip()
+            if not stored.startswith(b"gAAAA"):
+                _atomic_bytes(self.token_path, self.cipher.encrypt(stored))
 
     @property
     def admin_token(self) -> str:
-        return self.token_path.read_text(encoding="ascii").strip()
+        _private_file(self.token_path)
+        return self.cipher.decrypt(self.token_path.read_bytes()).decode("ascii")
 
     def encrypt(self, text: str) -> str:
         return self.cipher.encrypt(text.encode()).decode("ascii")
@@ -70,9 +124,16 @@ class Store:
     def decrypt(self, value: str | None) -> str:
         return self.cipher.decrypt(value.encode()).decode() if value else ""
 
+    def tls_password(self) -> str:
+        """Domain-separated password for the LAN TLS private key."""
+        raw = base64.urlsafe_b64decode(self.master_key)
+        return base64.urlsafe_b64encode(hmac.new(raw, b"Hilait LAN TLS private key v1", hashlib.sha256).digest()).decode("ascii")
+
     def read(self, name: str, default: Any) -> Any:
         with self.lock:
             path = self.root / name
+            if path.exists() or path.is_symlink():
+                _private_file(path)
             if name in CONNECTION_FILES:
                 seed = self.read_secure("admin-otp.json", {}).get("seed")
                 if not seed or not path.exists():
@@ -90,6 +151,9 @@ class Store:
 
     def write(self, name: str, value: Any) -> None:
         with self.lock:
+            path = self.root / name
+            if path.exists() or path.is_symlink():
+                _private_file(path)
             if name in CONNECTION_FILES:
                 seed = self.read_secure("admin-otp.json", {}).get("seed")
                 if not seed:
@@ -97,16 +161,20 @@ class Store:
                 data = self._connection_cipher(seed).encrypt(json.dumps(value, ensure_ascii=False).encode())
                 self._write_connection_bytes(name, data)
                 return
-            atomic_json(self.root / name, value)
+            atomic_json(path, value)
 
     def read_secure(self, name: str, default: Any) -> Any:
         with self.lock:
             path = self.root / name
+            if path.exists() or path.is_symlink():
+                _private_file(path)
             return json.loads(self.cipher.decrypt(path.read_bytes())) if path.exists() else default
 
     def write_secure(self, name: str, value: Any) -> None:
         with self.lock:
             path = self.root / name
+            if path.exists() or path.is_symlink():
+                _private_file(path)
             path.parent.mkdir(parents=True, exist_ok=True)
             fd, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
             try:
@@ -134,15 +202,18 @@ class Store:
         return Fernet(base64.urlsafe_b64encode(key))
 
     def _write_connection_bytes(self, name: str, data: bytes) -> None:
+        path = self.root / name
+        if path.exists() or path.is_symlink():
+            _private_file(path)
         fd, temporary = tempfile.mkstemp(prefix=name + ".", dir=self.root)
         try:
             with os.fdopen(fd, "wb") as stream:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, self.root / name)
+            os.replace(temporary, path)
             if os.name != "nt":
-                (self.root / name).chmod(0o600)
+                path.chmod(0o600)
         finally:
             if os.path.exists(temporary):
                 os.unlink(temporary)
@@ -223,7 +294,10 @@ class Audit:
 
     def records(self) -> list[dict]:
         if not self.path.exists():
+            if self.path.is_symlink():
+                raise PermissionError("Hilait audit log must not be a symlink.")
             return []
+        _private_file(self.path)
         output: list[dict] = []
         previous = ""
         for line in self.path.read_bytes().splitlines():
@@ -237,10 +311,14 @@ class Audit:
 
     def write(self, kind: str, context: dict, data: Any = None) -> dict:
         with self.lock:
+            if self.path.exists() or self.path.is_symlink():
+                _private_file(self.path)
             record = {"sequence": self.sequence + 1, "utc": utc_now(), "kind": kind,
                       "context": context, "data": data, "previous": self.previous}
             line = base64.b64encode(self.store.cipher.encrypt(json.dumps(record, ensure_ascii=False).encode()))
-            with self.path.open("ab") as stream:
+            flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(self.path, flags, 0o600)
+            with os.fdopen(fd, "ab") as stream:
                 stream.write(line + b"\n")
                 stream.flush()
                 os.fsync(stream.fileno())
@@ -255,19 +333,23 @@ class Audit:
     def delete_session(self, grant_id: str) -> None:
         with self.lock:
             kept = [record for record in self.records() if record.get("context", {}).get("grant") != grant_id]
-            temporary = self.path.with_suffix(".replacement")
             previous = ""
-            with temporary.open("wb") as stream:
-                for sequence, record in enumerate(kept, 1):
-                    record = {k: v for k, v in record.items() if k != "_hash"}
-                    record["sequence"] = sequence
-                    record["previous"] = previous
-                    line = base64.b64encode(self.store.cipher.encrypt(json.dumps(record, ensure_ascii=False).encode()))
-                    stream.write(line + b"\n")
-                    previous = hashlib.sha256(line).hexdigest()
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, self.path)
+            fd, temporary = tempfile.mkstemp(prefix="activity.audit.", dir=self.store.root)
+            try:
+                with os.fdopen(fd, "wb") as stream:
+                    for sequence, record in enumerate(kept, 1):
+                        record = {k: v for k, v in record.items() if k != "_hash"}
+                        record["sequence"] = sequence
+                        record["previous"] = previous
+                        line = base64.b64encode(self.store.cipher.encrypt(json.dumps(record, ensure_ascii=False).encode()))
+                        stream.write(line + b"\n")
+                        previous = hashlib.sha256(line).hexdigest()
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, self.path)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
             self.sequence = len(kept)
             self.previous = previous
             self.write("session_log_deleted", {}, {"note": "A user deleted one ended session log."})

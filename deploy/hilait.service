@@ -1,0 +1,34 @@
+[Unit]
+Description=Hilait SSH workspace
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=hilait
+Group=hilait
+WorkingDirectory=/var/lib/hilait
+Environment=HILAIT_DATA_DIR=/var/lib/hilait
+LoadCredential=master.key:/etc/hilait/master.key
+StateDirectory=hilait
+StateDirectoryMode=0700
+ExecStart=/opt/hilait-venv/bin/hilait serve --lan --port 8765
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

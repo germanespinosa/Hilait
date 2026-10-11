@@ -218,6 +218,30 @@ class AgentRuntime:
         self._notify({"type": "authorizations"})
         return item
 
+    def change_authorization_file_access(self, authorization_id: str, scope: str,
+                                         local_folder: str | None = None) -> dict:
+        if not isinstance(scope, str) or scope not in SCOPES:
+            raise ValueError("Choose a valid file access level.")
+        if local_folder is not None and not isinstance(local_folder, str):
+            raise ValueError("Choose a valid server folder.")
+        local_folder = local_folder.strip() if local_folder else None
+        if scope == "LocalTransfers" and not local_folder:
+            raise ValueError("Local transfers require a chosen server folder.")
+        if authorization_id not in {item["id"] for item in self.active_authorizations()}:
+            raise KeyError("Active authorization not found.")
+        items = self.authorizations()
+        item = next(item for item in items if item["id"] == authorization_id)
+        previous = {"file_access": item["file_access"], "local_folder": item.get("local_folder")}
+        item["file_access"] = scope
+        item["local_folder"] = local_folder if scope == "LocalTransfers" else None
+        self.audit.write("automatic_approval_file_access_changed",
+                         {"agentId": item["agent_id"], "profile": item["profile_id"]},
+                         {"authorizationId": item["id"], "previous": previous,
+                          "current": {"file_access": item["file_access"], "local_folder": item["local_folder"]}})
+        self.store.write("authorizations.json", items)
+        self._notify({"type": "authorizations"})
+        return item
+
     def revoke_authorization(self, authorization_id: str, reason: str = "Agent/machine authorization revoked") -> None:
         items = self.authorizations()
         item = next((a for a in items if a["id"] == authorization_id), None)

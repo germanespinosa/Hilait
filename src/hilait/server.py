@@ -616,6 +616,11 @@ def create_app(root: Path | None = None) -> FastAPI:
         return runtime.agents.extend_authorization(authorization_id, hours, permanent=permanent,
                                                    elevated_confirmed=payload.get("elevated_confirmed") is True)
 
+    @app.post("/api/authorizations/{authorization_id}/file-access", dependencies=[Depends(admin)])
+    async def change_authorization_file_access(authorization_id: str, payload: dict):
+        return runtime.agents.change_authorization_file_access(
+            authorization_id, payload.get("file_access"), payload.get("local_folder"))
+
     @app.post("/api/authorizations/{authorization_id}/revoke", dependencies=[Depends(admin)])
     async def revoke_authorization(authorization_id: str):
         authorization = next((a for a in runtime.agents.authorizations() if a["id"] == authorization_id), None)

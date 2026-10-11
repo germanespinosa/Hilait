@@ -165,6 +165,56 @@ async def test_extend_authorization_can_become_permanent(tmp_path, activate_otp)
 
 
 @pytest.mark.asyncio
+async def test_change_authorization_file_access(tmp_path, activate_otp, monkeypatch):
+    app = create_app(tmp_path)
+    runtime = app.state.runtime
+    headers = {"Authorization": "Bearer " + activate_otp(runtime)}
+    agent, _ = runtime.store.create_agent("File scope fixture")
+    profile = {"id": "file-scope-machine", "name": "File scope machine", "host": "localhost", "port": 22,
+               "username": "fixture", "platform": "unix", "shell": "default", "allowed_agent_ids": None}
+    runtime.store.save_profiles([profile])
+    authorization = runtime.agents.create_authorization(agent["id"], profile["id"], None, "None", permanent=True)
+    endpoint = f"/api/authorizations/{authorization['id']}/file-access"
+    auto_approved = []
+
+    async def approve(grant_id, **_kwargs):
+        auto_approved.append(grant_id)
+
+    monkeypatch.setattr(runtime.agents, "approve", approve)
+    purpose = "Inspect a known fixture for the approved maintenance task and report the result clearly."
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
+        assert (await client.post(endpoint, json={"file_access": "Remote"})).status_code == 401
+        assert (await client.post(endpoint, headers=headers, json={"file_access": "Invalid"})).status_code == 400
+        assert (await client.post(endpoint, headers=headers, json={"file_access": "LocalTransfers"})).status_code == 400
+        assert runtime.agents.active_authorization(agent["id"], profile["id"])["file_access"] == "None"
+        await runtime.agents.request(agent, profile["id"], purpose, "Remote")
+        assert auto_approved == []
+
+        remote = await client.post(endpoint, headers=headers, json={"file_access": "Remote"})
+        assert remote.status_code == 200, remote.text
+        assert remote.json()["file_access"] == "Remote"
+        await runtime.agents.request(agent, profile["id"], purpose, "Remote")
+        assert len(auto_approved) == 1
+
+        local = await client.post(endpoint, headers=headers,
+                                  json={"file_access": "LocalTransfers", "local_folder": " /srv/hilait-transfer "})
+        assert local.status_code == 200, local.text
+        assert local.json()["local_folder"] == "/srv/hilait-transfer"
+        assert runtime.store.read("authorizations.json", [])[0]["file_access"] == "LocalTransfers"
+
+        off = await client.post(endpoint, headers=headers, json={"file_access": "None"})
+        assert off.status_code == 200, off.text
+        assert off.json()["local_folder"] is None
+        assert runtime.agents.active_authorization(agent["id"], profile["id"])["file_access"] == "None"
+        assert any(record["kind"] == "automatic_approval_file_access_changed"
+                   for record in runtime.audit.records())
+
+        runtime.agents.revoke_authorization(authorization["id"])
+        assert (await client.post(endpoint, headers=headers, json={"file_access": "Remote"})).status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_permanent_authorization_and_low_score_revocation(tmp_path, monkeypatch, activate_otp):
     app = create_app(tmp_path)
     runtime = app.state.runtime

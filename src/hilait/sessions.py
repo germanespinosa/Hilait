@@ -106,15 +106,19 @@ class SessionManager:
 
     async def open(self, profile: dict, *, secret: str | None = None, owner: str = "You",
                    purpose: str = "Manual session", grant_id: str | None = None) -> Session:
-        password = secret if secret is not None else self.store.decrypt(profile.get("secret"))
+        credential = secret if secret is not None else self.store.decrypt(profile.get("secret"))
+        auth_method = profile.get("auth_method", "key" if profile.get("private_key") else "password")
+        if auth_method not in {"password", "key"} or (auth_method == "key" and not profile.get("private_key")):
+            raise ValueError("Invalid SSH authentication setup for this connection.")
 
         def connect() -> tuple[paramiko.SSHClient, paramiko.Channel]:
             client = paramiko.SSHClient()
             client.set_missing_host_key_policy(_TrustPolicy(self.store, profile["host"], int(profile.get("port", 22))))
             try:
                 client.connect(profile["host"], port=int(profile.get("port", 22)), username=profile["username"],
-                               password=password or None, passphrase=password or None,
-                               key_filename=profile.get("private_key") or None,
+                               password=(credential or None) if auth_method == "password" else None,
+                               passphrase=(credential or None) if auth_method == "key" else None,
+                               key_filename=profile.get("private_key") if auth_method == "key" else None,
                                allow_agent=False, look_for_keys=False, timeout=20, auth_timeout=20, banner_timeout=20)
                 channel = client.invoke_shell(term="xterm-256color", width=100, height=30)
                 channel.settimeout(1)

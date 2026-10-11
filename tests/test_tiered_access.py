@@ -1,4 +1,5 @@
 import httpx
+import paramiko
 import pytest
 
 from hilait.agents import login_profile
@@ -7,6 +8,54 @@ from hilait.server import _sudo, create_app
 
 PURPOSE = ("Inspect the machine and report its state without changing files, services, "
            "settings, permissions, credentials, or any other resources.")
+
+
+@pytest.mark.asyncio
+async def test_authentication_methods_are_separate_and_switching_clears_old_secret(tmp_path, activate_otp, monkeypatch):
+    app = create_app(tmp_path)
+    runtime = app.state.runtime
+    headers = {"Authorization": "Bearer " + activate_otp(runtime)}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
+        initial = await client.post("/api/profiles", headers=headers, json={
+            "name": "Host", "host": "localhost", "username": "viewer", "secret": "normal-password",
+            "access_mode": "tiered", "normal_unprivileged_confirmed": True,
+            "elevated_username": "operator", "elevated_auth_method": "key",
+            "elevated_private_key": "/keys/operator", "elevated_secret": "key-passphrase"})
+        assert initial.status_code == 200, initial.text
+        public = initial.json()
+        assert public["auth_method"] == "password"
+        assert public["elevated_auth_method"] == "key"
+        saved = runtime.store.profile(public["id"])
+        assert login_profile(saved, "elevated")["auth_method"] == "key"
+        attempts = []
+
+        def capture_connect(self, *args, **kwargs):
+            attempts.append(kwargs)
+            raise RuntimeError("captured SSH arguments")
+
+        monkeypatch.setattr(paramiko.SSHClient, "connect", capture_connect)
+        for privilege in ("normal", "elevated"):
+            with pytest.raises(RuntimeError, match="captured SSH arguments"):
+                await runtime.sessions.open(login_profile(saved, privilege))
+        assert (attempts[0]["password"], attempts[0]["passphrase"], attempts[0]["key_filename"]) == (
+            "normal-password", None, None)
+        assert (attempts[1]["password"], attempts[1]["passphrase"], attempts[1]["key_filename"]) == (
+            None, "key-passphrase", "/keys/operator")
+
+        switched = await client.post("/api/profiles", headers=headers, json={
+            **public, "auth_method": "key", "private_key": "/keys/viewer",
+            "elevated_auth_method": "password"})
+        assert switched.status_code == 200, switched.text
+        new_public = switched.json()
+        assert not new_public["has_saved_secret"]
+        assert not new_public["has_saved_elevated_secret"]
+        changed = runtime.store.profile(public["id"])
+        assert changed["secret"] is None and changed["elevated_secret"] is None
+        assert changed["elevated_private_key"] == ""
+        assert login_profile(changed, "elevated")["auth_method"] == "password"
+        invalid = await client.post("/api/profiles", headers=headers, json={
+            **new_public, "auth_method": "key", "private_key": ""})
+        assert invalid.status_code == 400
 
 
 @pytest.mark.asyncio

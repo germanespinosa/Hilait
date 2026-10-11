@@ -355,6 +355,19 @@ def create_app(root: Path | None = None) -> FastAPI:
         if mode not in {"legacy", "tiered"}:
             raise ValueError("Choose legacy or tiered agent access.")
         elevated_username = str(payload.get("elevated_username", old.get("elevated_username", ""))).strip()
+        old_auth_method = old.get("auth_method", "key" if old.get("private_key") else "password")
+        old_elevated_auth_method = old.get("elevated_auth_method", "key" if old.get("elevated_private_key") else "password")
+        auth_method = payload.get("auth_method", old_auth_method)
+        elevated_auth_method = payload.get("elevated_auth_method", old_elevated_auth_method)
+        if auth_method not in {"password", "key"} or elevated_auth_method not in {"password", "key"}:
+            raise ValueError("Choose password or private key authentication for each account.")
+        private_key = str(payload.get("private_key", old.get("private_key", ""))).strip() if auth_method == "key" else ""
+        elevated_private_key = (str(payload.get("elevated_private_key", old.get("elevated_private_key", ""))).strip()
+                                if elevated_auth_method == "key" else "")
+        if auth_method == "key" and not private_key:
+            raise ValueError("A server-side private key path is required for key authentication.")
+        if elevated_username and elevated_auth_method == "key" and not elevated_private_key:
+            raise ValueError("An elevated server-side private key path is required for key authentication.")
         confirmed = payload.get("normal_unprivileged_confirmed", old.get("normal_unprivileged_confirmed", False)) is True
         if (mode == "tiered" and old and old.get("username") != username
                 and payload.get("normal_unprivileged_confirmed") is not True):
@@ -366,17 +379,18 @@ def create_app(root: Path | None = None) -> FastAPI:
         profile = {"id": profile_id, "name": name, "host": host, "port": port,
                    "username": username, "platform": payload.get("platform", old.get("platform", "unix")),
                    "shell": payload.get("shell", old.get("shell", "default")),
-                   "private_key": payload.get("private_key", old.get("private_key", "")),
+                   "auth_method": auth_method, "private_key": private_key,
                    "allowed_agent_ids": allowed,
                    "access_mode": mode, "normal_unprivileged_confirmed": confirmed,
                    "elevated_username": elevated_username,
-                   "elevated_private_key": payload.get("elevated_private_key", old.get("elevated_private_key", "")),
+                   "elevated_auth_method": elevated_auth_method, "elevated_private_key": elevated_private_key,
                    "elevated_allowed_agent_ids": elevated_allowed,
                    "elevated_sudo_policy": payload.get("elevated_sudo_policy", old.get("elevated_sudo_policy", "per_request")),
                    "agent_idle_timeout_minutes": int(payload.get("agent_idle_timeout_minutes", old.get("agent_idle_timeout_minutes", 10))),
                    "sudo_policy": payload.get("sudo_policy", old.get("sudo_policy", "per_request")),
-                   "secret": old.get("secret"), "sudo_secret": old.get("sudo_secret"),
-                   "elevated_secret": old.get("elevated_secret"),
+                   "secret": old.get("secret") if auth_method == old_auth_method else None,
+                   "sudo_secret": old.get("sudo_secret"),
+                   "elevated_secret": old.get("elevated_secret") if elevated_auth_method == old_elevated_auth_method else None,
                    "elevated_sudo_secret": old.get("elevated_sudo_secret")}
         policies = {"per_request", "per_connection", "per_authorization", "never"}
         if (profile["platform"] not in {"unix", "windows"} or profile["sudo_policy"] not in policies
@@ -404,9 +418,11 @@ def create_app(root: Path | None = None) -> FastAPI:
             if old.get("access_mode", "legacy") != mode or any(old.get(key) != profile.get(key) for key in ("host", "port", "platform")):
                 changed_tiers = {"legacy", "normal", "elevated"}
             else:
-                if any(old.get(key) != profile.get(key) for key in ("username", "private_key", "secret", "sudo_secret", "sudo_policy")):
+                if (old_auth_method != auth_method or
+                        any(old.get(key) != profile.get(key) for key in ("username", "private_key", "secret", "sudo_secret", "sudo_policy"))):
                     changed_tiers.update({"legacy", "normal"})
-                if any(old.get(key) != profile.get(key) for key in ("elevated_username", "elevated_private_key", "elevated_secret", "elevated_sudo_secret", "elevated_sudo_policy")):
+                if (old_elevated_auth_method != elevated_auth_method or
+                        any(old.get(key) != profile.get(key) for key in ("elevated_username", "elevated_private_key", "elevated_secret", "elevated_sudo_secret", "elevated_sudo_policy"))):
                     changed_tiers.add("elevated")
             if changed_tiers and any(session.profile["id"] == profile_id and session.profile.get("privilege", "legacy") in changed_tiers
                                      for session in runtime.sessions.sessions.values()):

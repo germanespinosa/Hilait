@@ -48,6 +48,7 @@ def login_profile(profile: dict, privilege: str) -> dict:
         result["sudo_secret"] = None
     if resolved == "elevated":
         result.update(username=profile["elevated_username"], private_key=profile.get("elevated_private_key", ""),
+                      auth_method=profile.get("elevated_auth_method", "key" if profile.get("elevated_private_key") else "password"),
                       secret=profile.get("elevated_secret"), sudo_secret=profile.get("elevated_sudo_secret"),
                       sudo_policy=profile.get("elevated_sudo_policy", "per_request"))
     return result

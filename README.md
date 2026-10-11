@@ -62,7 +62,7 @@ The package includes its terminal JavaScript and CSS. Node.js is needed only whe
 
 ## Use the workspace
 
-Create a saved machine with a display name, host, port, username, and optional SSH password or private-key path. A saved password or passphrase is encrypted locally. Hilait verifies the server's SHA-256 host-key fingerprint *before* sending SSH credentials. Compare a new or changed fingerprint with a trusted source, then explicitly trust it. You can keep multiple independent SSH terminals to the same machine; each agent purpose gets its own session.
+Create a saved machine with a display name, host, port, and SSH username. Under **Authentication & access**, choose **Username and password** or **Username and private key** for each configured SSH account. A private key path refers to a file readable by the Hilait server account; the browser does not upload the key. Saved passwords and key passphrases are encrypted locally. Switching methods clears the previously saved login secret. Hilait verifies the server's SHA-256 host-key fingerprint *before* sending SSH credentials. Compare a new or changed fingerprint with a trusted source, then explicitly trust it. You can keep multiple independent SSH terminals to the same machine; each agent purpose gets its own session.
 
 The left column holds saved machines. Drag one between its neighbors to save a new order. Selecting a machine shows only its active sessions, newest first. A new session selects its machine and terminal automatically; closed sessions disappear. Double-click a machine to connect, and disconnect from the terminal header or a session's context menu. Disconnecting warns that a remote foreground command or transfer may be interrupted.
 

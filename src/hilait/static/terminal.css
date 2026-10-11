@@ -156,8 +156,8 @@
   #machine-list .machine,
   #session-list .session-row {
     flex: 0 0 175px;
-    margin: 2px 0;
-    padding: 7px 9px;
+    margin: 1px 0;
+    padding: 6px 9px;
   }
   .sessions-pane {
     padding: 3px 10px;

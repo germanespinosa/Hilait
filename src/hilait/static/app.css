@@ -47,14 +47,14 @@ a { color: var(--accent); }
 .sessions-pane h2 { margin: 0 7px 17px; }
 .scroll { overflow: auto; min-height: 0; scrollbar-color: var(--line) transparent; }
 .list { flex: 1; }
-.machine, .session-row { padding: 10px 11px; margin: 3px 0; border: 1px solid transparent; border-radius: 8px; cursor: pointer; overflow: hidden; }
+.machine, .session-row { padding: 6px 11px; margin: 1px 0; border: 1px solid transparent; border-radius: 8px; cursor: pointer; overflow: hidden; }
 .machine:hover, .session-row:hover { background: var(--button); }
 .machine.selected, .session-row.selected { background: var(--selected); border-color: var(--accent); }
 .machine strong, .session-row strong { display: block; font-size: 13px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.machine small, .session-row small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.machine small, .session-row small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .machine .connected-dot { display: inline-block; width: 7px; height: 7px; margin: 0 7px 1px 0; background: var(--accent); border-radius: 50%; }
 .machine.dragging { display: none; }
-.machine-placeholder { padding: 10px 11px; margin: 3px 0; color: var(--text); background: var(--accent-soft); border: 2px solid var(--accent); border-radius: 8px; font-size: 13px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.machine-placeholder { padding: 6px 11px; margin: 1px 0; color: var(--text); background: var(--accent-soft); border: 2px solid var(--accent); border-radius: 8px; font-size: 13px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .main-pane { min-width: 0; min-height: 0; padding: 18px; background: var(--bg); }
 .welcome { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; height: 100%; max-width: 600px; margin: auto; padding: clamp(24px, 6vw, 76px); }

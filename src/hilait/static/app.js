@@ -7,6 +7,7 @@
   const fragment = new URLSearchParams(location.hash.slice(1));
   if (fragment.get('token')) { token = fragment.get('token'); sessionStorage.setItem('hilait-token', token); history.replaceState(null, '', location.pathname); }
   let state = null, selectedProfile = null, selectedSession = null, terminal = null, terminalSocket = null, eventsSocket = null, currentFile = null, currentFilePath = '/', contextMenu = null;
+  const authorizationFilters = {agent: '', machine: ''};
   let draggedMachine = null, dragPlaceholder = null;
 
   function status(message) { $('#status').textContent = message; }
@@ -284,10 +285,21 @@
   function settingsTab(tab) { $('#modal .settings-nav').querySelectorAll('button').forEach(b=>{b.classList.toggle('active',b.dataset.tab===tab);b.setAttribute('aria-current',b.dataset.tab===tab?'page':'false');}); const box=$('#settings-content'); if(tab==='appearance'){appearanceSettings();}
     else if(tab==='agents') { agentAccessSettings(box); }
     else if(tab==='authorizations'){
+      const authorizations=state.authorizations;
+      const agents=[...new Set(authorizations.map(a=>a.agent_id))].map(id=>({id,name:state.agents.find(agent=>agent.id===id)?.name||id})).sort((a,b)=>a.name.localeCompare(b.name));
+      const machines=[...new Set(authorizations.map(a=>a.profile_id))].map(id=>({id,name:state.profiles.find(profile=>profile.id===id)?.name||authorizations.find(a=>a.profile_id===id)?.connection||id})).sort((a,b)=>a.name.localeCompare(b.name));
+      if(!agents.some(agent=>agent.id===authorizationFilters.agent))authorizationFilters.agent='';
+      if(!machines.some(machine=>machine.id===authorizationFilters.machine))authorizationFilters.machine='';
       box.innerHTML=`<div class="actions"><button id="add-authorization" class="primary">＋ New authorization</button><button id="show-revocation-settings">Automatic revocation settings</button></div>
-        ${state.authorizations.length?state.authorizations.map(a=>`<div class="setting-row"><strong>${escaped(state.agents.find(x=>x.id===a.agent_id)?.name||a.agent_id)} · ${escaped(a.connection)} · ${escaped(tierLabel(a.privilege))}</strong><small>${a.permanent?'Permanent':'Until '+new Date(a.expires_utc).toLocaleString()} · ${escaped(a.file_access)}</small><div class="actions">${a.permanent?'':`<button data-extend="${escaped(a.id)}">Extend</button>`}<button data-revoke="${escaped(a.id)}">Revoke</button></div></div>`).join(''):'<p class="empty-message">No active authorizations.</p>'}`;
+        ${authorizations.length?`<div class="authorization-filters"><label>Agent<select id="authorization-agent-filter"><option value="">All agents</option>${agents.map(agent=>`<option value="${escaped(agent.id)}">${escaped(agent.name)}</option>`).join('')}</select></label><label>Machine<select id="authorization-machine-filter"><option value="">All machines</option>${machines.map(machine=>`<option value="${escaped(machine.id)}">${escaped(machine.name)}</option>`).join('')}</select></label></div><p class="authorization-filter-count" id="authorization-filter-count" role="status"></p><div id="authorization-list">${authorizations.map(a=>`<div class="setting-row authorization-row" data-agent-id="${escaped(a.agent_id)}" data-machine-id="${escaped(a.profile_id)}"><strong>${escaped(state.agents.find(x=>x.id===a.agent_id)?.name||a.agent_id)} · ${escaped(a.connection)} · ${escaped(tierLabel(a.privilege))}</strong><small>${a.permanent?'Permanent':'Until '+new Date(a.expires_utc).toLocaleString()} · ${escaped(a.file_access)}</small><div class="actions">${a.permanent?'':`<button data-extend="${escaped(a.id)}">Extend</button>`}<button data-revoke="${escaped(a.id)}">Revoke</button></div></div>`).join('')}</div><p class="empty-message hidden" id="authorization-filter-empty">No authorizations match these filters.</p>`:'<p class="empty-message">No active authorizations.</p>'}`;
       $('#add-authorization').onclick=authorizationDialog;
       $('#show-revocation-settings').onclick=()=>{settingsTab('review');$('#review-revocation-heading').scrollIntoView({block:'start'});};
+      if(authorizations.length){
+        const agentFilter=$('#authorization-agent-filter'),machineFilter=$('#authorization-machine-filter');
+        agentFilter.value=authorizationFilters.agent;machineFilter.value=authorizationFilters.machine;
+        const applyFilters=()=>{authorizationFilters.agent=agentFilter.value;authorizationFilters.machine=machineFilter.value;let visible=0;box.querySelectorAll('.authorization-row').forEach(row=>{const match=(!authorizationFilters.agent||row.dataset.agentId===authorizationFilters.agent)&&(!authorizationFilters.machine||row.dataset.machineId===authorizationFilters.machine);row.classList.toggle('hidden',!match);if(match)visible++;});$('#authorization-filter-count').textContent=`Showing ${visible} of ${authorizations.length} active authorizations`;$('#authorization-filter-empty').classList.toggle('hidden',visible!==0);};
+        agentFilter.onchange=applyFilters;machineFilter.onchange=applyFilters;applyFilters();
+      }
       box.onclick=e=>{const id=e.target.dataset.extend||e.target.dataset.revoke;if(!id)return;if(e.target.dataset.extend)extendAuthorizationDialog(id);else confirmDialog('Revoke authorization','This also ends the agent’s active access.', 'Revoke access',()=>api(`/api/authorizations/${id}/revoke`,'POST',{}),()=>settings('authorizations'));};
     }
     else if(tab==='otp'){otpSettings();}

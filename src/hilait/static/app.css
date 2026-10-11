@@ -110,6 +110,8 @@ a { color: var(--accent); }
 .settings-nav button.active { color: var(--accent); background: var(--accent-soft); font-weight: 650; }
 #settings-content { min-width: 0; }
 #settings-content > p:first-child { margin-top: 0; }
+.authorization-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.authorization-filter-count { margin: 12px 0 8px; font-size: 12px; }
 .settings-heading { margin: 1px 0 13px !important; font-size: 15px !important; }
 .theme-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .theme-options button { min-height: 100px; padding: 14px; text-align: left; background: var(--pane); }
@@ -251,6 +253,7 @@ a { color: var(--accent); }
   .settings-nav button { flex: none; white-space: nowrap; }
   .settings-nav button { width: auto; }
   .form-grid { grid-template-columns: 1fr; }
+  .authorization-filters { grid-template-columns: 1fr; }
   .form-grid .full { grid-column: 1; }
   .theme-options { grid-template-columns: 1fr; }
   .theme-options button { min-height: 62px; }

@@ -87,7 +87,7 @@ def build_mcp(server_url: str | None = None, ca_cert: str | None = None) -> MCPS
     def connections() -> list[dict]:
         return call("connections", {})
 
-    @mcp.tool(description="Request a fresh SSH session for a detailed stated purpose (80–8000 characters). Include desired fileAccess: None, Remote, or LocalTransfers. Request privilege=normal or elevated on tiered machines; omit it for legacy machines. Elevated requires separate approval and stronger review. NO SHENANIGANS: activity is logged and reviewed; obfuscation or suspicious behavior may revoke access. When done, call release_access with closeConnection=true.")
+    @mcp.tool(description="Request a fresh SSH session for a detailed stated purpose (80–8000 characters). Include desired fileAccess: None, Remote, or LocalTransfers. Request privilege=normal or elevated on machines with separate accounts; omit it for single-account machines. Elevated requires separate approval and stronger review. NO SHENANIGANS: activity is logged and reviewed; obfuscation or suspicious behavior may revoke access. When done, call release_access with closeConnection=true.")
     def request_access(connection: str, purpose: str, fileAccess: str = "None", privilege: str | None = None) -> dict:
         return call("request_access", locals())
 
@@ -122,7 +122,7 @@ def build_mcp(server_url: str | None = None, ca_cert: str | None = None) -> MCPS
              destinationAccess: str | None = None) -> dict:
         return call("copy", locals())
 
-    @mcp.tool(description="Ask the human to approve a Unix sudo command on a legacy or elevated grant. Normal grants cannot use managed sudo. Never supply or ask for a password via MCP. The command runs on a separate SSH exec channel and does not inherit the visible shell's cwd.")
+    @mcp.tool(description="Ask the human to approve a Unix sudo command on a single-account or elevated grant. Normal grants cannot use managed sudo. Never supply or ask for a password via MCP. The command runs on a separate SSH exec channel and does not inherit the visible shell's cwd.")
     def request_sudo(access: str, command: str, reason: str) -> dict:
         return call("request_sudo", locals())
 

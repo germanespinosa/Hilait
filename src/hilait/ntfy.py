@@ -82,8 +82,9 @@ class NtfyNotifier:
             return
         address = config["hilait_url"] + "/approve/" + quote(grant.id, safe="")
         preview = grant.purpose[:180].strip() + ("…" if len(grant.purpose) > 180 else "")
-        payload = {"topic": config["topic"], "title": f"Hilait: {grant.agent} requests {grant.connection} ({grant.privilege.upper()})",
-                   "message": f"{preview}\nTier: {grant.privilege.upper()} · Files: {grant.file_access}",
+        tier_label = "Single account" if grant.privilege == "legacy" else grant.privilege.capitalize()
+        payload = {"topic": config["topic"], "title": f"Hilait: {grant.agent} requests {grant.connection} ({tier_label})",
+                   "message": f"{preview}\nTier: {tier_label} · Files: {grant.file_access}",
                    "priority": 5 if grant.privilege == "elevated" else 4,
                    "actions": [{"action": "view", "label": "Review and approve",
                                 "url": address + "?choice=approve"},

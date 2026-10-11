@@ -45,7 +45,7 @@
     $('#request-title').textContent = grant.state === 'Pending' ? 'Review access request' : 'Request ' + grant.state.toLowerCase();
     $('#request-agent').textContent = grant.agent;
     $('#request-machine').textContent = grant.connection;
-    $('#request-tier').textContent = (grant.privilege || 'legacy').toUpperCase();
+    $('#request-tier').textContent = grant.privilege === 'elevated' ? 'Elevated' : grant.privilege === 'normal' ? 'Normal' : 'Single account';
     const elevated = grant.privilege === 'elevated';
     $('#request-title').textContent = elevated && grant.state === 'Pending' ? 'Review ELEVATED access request' : $('#request-title').textContent;
     $('#elevated-warning').classList.toggle('hidden', !elevated);

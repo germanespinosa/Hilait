@@ -74,7 +74,7 @@ class Runtime:
                        for agent in self.store.agents()],
             "tokenRequests": self.enrollment.pending(),
             "grants": [grant.public() for grant in self.agents.grants.values()],
-            "authorizations": self.agents.authorizations(),
+            "authorizations": self.agents.active_authorizations(),
             "reviewSettings": self.reviewer.public_settings(),
             "sudoRequests": [data for data, _ in self.sudo_requests.values()],
             "otpEnabled": self.auth.enabled(),

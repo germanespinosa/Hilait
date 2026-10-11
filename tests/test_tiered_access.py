@@ -1,6 +1,7 @@
 import httpx
 import paramiko
 import pytest
+from datetime import datetime, timedelta, timezone
 
 from hilait.agents import login_profile
 from hilait.server import _sudo, create_app
@@ -8,6 +9,29 @@ from hilait.server import _sudo, create_app
 
 PURPOSE = ("Inspect the machine and report its state without changing files, services, "
            "settings, permissions, credentials, or any other resources.")
+
+
+def test_authorizations_state_only_exposes_current_access(tmp_path, activate_otp):
+    app = create_app(tmp_path)
+    runtime = app.state.runtime
+    activate_otp(runtime)
+    profile = {"id": "host", "name": "Host", "host": "localhost", "username": "viewer",
+               "access_mode": "legacy", "credential_revisions": {"legacy": 0}}
+    runtime.store.save_profiles([profile])
+    agent, _ = runtime.store.create_agent("Review agent")
+    current = runtime.agents.create_authorization(agent["id"], "host", 1, "None")
+    assert [item["id"] for item in runtime.state()["authorizations"]] == [current["id"]]
+
+    records = runtime.agents.authorizations()
+    records[0]["expires_utc"] = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    runtime.store.write("authorizations.json", records)
+    assert runtime.state()["authorizations"] == []
+
+    replacement = runtime.agents.create_authorization(agent["id"], "host", None, "None", permanent=True)
+    assert [item["id"] for item in runtime.state()["authorizations"]] == [replacement["id"]]
+    runtime.agents.revoke_authorization(replacement["id"])
+    assert runtime.state()["authorizations"] == []
+    assert len(runtime.agents.authorizations()) == 2
 
 
 @pytest.mark.asyncio

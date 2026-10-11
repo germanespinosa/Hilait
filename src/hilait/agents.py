@@ -134,23 +134,36 @@ class AgentRuntime:
     def authorizations(self) -> list[dict]:
         return self.store.read("authorizations.json", [])
 
-    def active_authorization(self, agent_id: str, profile_id: str, privilege: str | None = None) -> dict | None:
-        agent = next((item for item in self.store.agents() if item["id"] == agent_id and item["active"]), None)
-        if not agent:
-            return None
-        try:
-            profile = self.permitted_profile(agent, profile_id, privilege)
-        except (KeyError, PermissionError, ValueError):
-            return None
-        tier = resolve_privilege(profile, privilege)
+    def active_authorizations(self) -> list[dict]:
+        agents = {agent["id"]: agent for agent in self.store.agents() if agent["active"]}
+        profiles = {profile["id"]: profile for profile in self.store.profiles()}
         now = datetime.now(timezone.utc)
+        active = []
         for item in self.authorizations():
-            if (item["agent_id"] == agent_id and item["profile_id"] == profile_id and not item["revoked"]
-                    and item.get("privilege", "legacy") == tier
+            if item.get("revoked"):
+                continue
+            agent, profile = agents.get(item["agent_id"]), profiles.get(item["profile_id"])
+            if not agent or not profile:
+                continue
+            try:
+                tier = resolve_privilege(profile, item.get("privilege", "legacy"))
+            except ValueError:
+                continue
+            if (self._tier_allowed(agent, profile, tier)
                     and item.get("credential_revision", 0) == credential_revision(profile, tier)
-                    and (item.get("permanent") or item.get("expires_utc") and datetime.fromisoformat(item["expires_utc"]) > now)):
-                return item
-        return None
+                    and (item.get("permanent") or item.get("expires_utc")
+                         and datetime.fromisoformat(item["expires_utc"]) > now)):
+                active.append(item)
+        return active
+
+    def active_authorization(self, agent_id: str, profile_id: str, privilege: str | None = None) -> dict | None:
+        try:
+            tier = resolve_privilege(self.store.profile(profile_id), privilege)
+        except (KeyError, ValueError):
+            return None
+        return next((item for item in self.active_authorizations()
+                     if item["agent_id"] == agent_id and item["profile_id"] == profile_id
+                     and item.get("privilege", "legacy") == tier), None)
 
     def create_authorization(self, agent_id: str, profile_id: str, hours: float | None, scope: str,
                              local_folder: str | None = None, *, permanent: bool = False,

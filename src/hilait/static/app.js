@@ -198,7 +198,13 @@
   }
   function settingsTab(tab) { $('#modal .settings-nav').querySelectorAll('button').forEach(b=>{b.classList.toggle('active',b.dataset.tab===tab);b.setAttribute('aria-current',b.dataset.tab===tab?'page':'false');}); const box=$('#settings-content'); if(tab==='appearance'){appearanceSettings();}
     else if(tab==='agents') { agentAccessSettings(box); }
-    else if(tab==='authorizations'){box.innerHTML=`<button id="add-authorization" class="primary">＋ New authorization</button>${state.authorizations.map(a=>`<div class="setting-row"><strong>${escaped(state.agents.find(x=>x.id===a.agent_id)?.name||a.agent_id)} · ${escaped(a.connection)} · ${escaped(tierLabel(a.privilege))}</strong><small>${a.revoked?'Revoked':a.permanent?'Permanent':new Date(a.expires_utc)<new Date()?'Expired':'Until '+new Date(a.expires_utc).toLocaleString()} · ${escaped(a.file_access)}</small><div class="actions">${a.permanent?'':`<button data-extend="${escaped(a.id)}">Extend</button>`}<button data-revoke="${escaped(a.id)}">Revoke</button></div></div>`).join('')}`; $('#add-authorization').onclick=authorizationDialog; box.onclick=e=>{const id=e.target.dataset.extend||e.target.dataset.revoke;if(!id)return;if(e.target.dataset.extend){const hours=Number(prompt('Add how many hours?','1'));if(hours>0)action(async()=>{await api(`/api/authorizations/${id}/extend`,'POST',{hours});settings('authorizations');});}else if(confirm('Revoke this authorization and active agent access?'))action(async()=>{await api(`/api/authorizations/${id}/revoke`,'POST',{});settings('authorizations');});};}
+    else if(tab==='authorizations'){
+      box.innerHTML=`<div class="actions"><button id="add-authorization" class="primary">＋ New authorization</button><button id="show-revocation-settings">Automatic revocation settings</button></div>
+        ${state.authorizations.length?state.authorizations.map(a=>`<div class="setting-row"><strong>${escaped(state.agents.find(x=>x.id===a.agent_id)?.name||a.agent_id)} · ${escaped(a.connection)} · ${escaped(tierLabel(a.privilege))}</strong><small>${a.permanent?'Permanent':'Until '+new Date(a.expires_utc).toLocaleString()} · ${escaped(a.file_access)}</small><div class="actions">${a.permanent?'':`<button data-extend="${escaped(a.id)}">Extend</button>`}<button data-revoke="${escaped(a.id)}">Revoke</button></div></div>`).join(''):'<p class="empty-message">No active authorizations.</p>'}`;
+      $('#add-authorization').onclick=authorizationDialog;
+      $('#show-revocation-settings').onclick=()=>{settingsTab('review');$('#review-revocation-heading').scrollIntoView({block:'start'});};
+      box.onclick=e=>{const id=e.target.dataset.extend||e.target.dataset.revoke;if(!id)return;if(e.target.dataset.extend){const hours=Number(prompt('Add how many hours?','1'));if(hours>0)action(async()=>{await api(`/api/authorizations/${id}/extend`,'POST',{hours});settings('authorizations');});}else if(confirm('Revoke this authorization and active agent access?'))action(async()=>{await api(`/api/authorizations/${id}/revoke`,'POST',{});settings('authorizations');});};
+    }
     else if(tab==='otp'){otpSettings();}
     else if(tab==='notifications'){notificationSettings();}
     else {reviewSettings();}
@@ -228,7 +234,7 @@
       <h3>Score alerts</h3>
       <p class="setting-hint">Send an ntfy alert when a score meets a threshold. Configure the server and topic in Notifications. Alerts include a brief model summary.</p>
       <div class="form-grid">${alertRow('safety','Safety')}${alertRow('purpose_alignment','Purpose alignment')}${alertRow('correctness','Correctness')}</div>
-      <h3>Automatic access revocation</h3>
+      <h3 id="review-revocation-heading">Automatic access revocation</h3>
       <p class="setting-hint">A completed review at or below any enabled score immediately revokes the agent's current access and standing authorization for that machine. Set Frequency to Automatic for ongoing checks. On demand reviews also apply these thresholds. Correctness requires Deep review.</p>
       <div class="form-grid">${revokeRow('safety','Safety')}${revokeRow('purpose_alignment','Purpose alignment')}${revokeRow('correctness','Correctness')}</div>
       <h3>Elevated access revocation</h3>

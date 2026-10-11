@@ -2,32 +2,34 @@
 html, body { min-height: 100%; margin: 0; background: var(--bg); color: var(--text); }
 body { font-size: 14px; line-height: 1.5; }
 button, input, select { font: inherit; }
-button { min-height: 44px; padding: 10px 15px; color: var(--text); background: var(--button); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+button { min-height: 44px; padding: 10px 15px; color: var(--text); background: var(--button); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; transition: background-color .15s, border-color .15s; }
 button:hover { background: var(--button-hover); }
 button:disabled { opacity: .55; cursor: wait; }
 button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .primary { color: var(--on-primary); background: var(--primary); border-color: var(--primary); font-weight: 600; }
 .primary:hover { background: var(--primary-hover); }
+.danger { color: var(--danger); background: transparent; border-color: var(--danger); }
+.danger:hover { background: var(--danger-soft); }
 .hidden { display: none !important; }
-.page { width: min(620px, 100%); margin: auto; padding: 24px 16px 36px; }
+.page { width: min(620px, 100%); margin: auto; padding: clamp(16px, 3vw, 28px) 16px 40px; }
 header { display: flex; align-items: center; gap: 11px; margin: 0 0 22px; }
 header img { border-radius: 10px; }
 header strong { font-size: 20px; letter-spacing: -.03em; }
 header .theme-toggle { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; padding: 8px; margin-left: auto; }
 .card { padding: clamp(20px, 5vw, 32px); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
 .card h1 { margin: 7px 0 18px; font-size: clamp(25px, 5vw, 31px); line-height: 1.2; letter-spacing: -.03em; }
-.card h2 { margin: 25px 0 9px; font-size: 13px; }
+.card h2 { margin: 20px 0 8px; font-size: 13px; }
 .card p { color: var(--muted); line-height: 1.55; }
 .eyebrow { margin: 0; color: var(--accent) !important; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
 dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
 dl div { min-width: 0; padding: 10px; background: var(--pane); border: 1px solid var(--line); border-radius: 8px; }
 dt { margin-bottom: 5px; color: var(--muted); font-size: 11px; }
 dd { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
-.purpose { padding: 14px; margin: 0 0 24px; color: var(--text) !important; background: var(--pane); border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.purpose { padding: 13px 14px; margin: 0 0 18px; color: var(--text) !important; background: var(--pane); border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .elevated-warning { padding: 14px; color: var(--danger) !important; background: var(--pane); border: 2px solid var(--danger); border-radius: 8px; font-weight: 700; }
 .elevated-confirm { display: flex; align-items: flex-start; gap: 10px; color: var(--text); font-weight: 700; }
 .elevated-confirm input { width: auto; min-height: 0; margin: 2px 0 0; }
-label { display: block; margin: 15px 0; color: var(--muted); font-size: 12px; font-weight: 550; }
+label { display: block; margin: 13px 0; color: var(--muted); font-size: 12px; font-weight: 550; }
 input, select { display: block; width: 100%; min-height: 44px; padding: 10px; margin-top: 6px; color: var(--text); background: var(--field); border: 1px solid var(--line); border-radius: 8px; font-size: 14px; }
 .hint { margin: -5px 0 14px; font-size: 12px; }
 .actions { display: flex; gap: 9px; margin-top: 22px; }
@@ -41,9 +43,11 @@ footer { margin: 23px 0; text-align: center; font-size: 13px; }
 a { color: var(--accent); }
 #login-form button { width: 100%; margin-top: 8px; }
 @media (max-width: 480px) {
+  .card { padding: 20px; }
   dl { grid-template-columns: 1fr; }
   dl div { display: flex; justify-content: space-between; gap: 15px; }
   dt { margin: 0; }
   .actions { flex-direction: column-reverse; }
   .actions button { width: 100%; }
 }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } }

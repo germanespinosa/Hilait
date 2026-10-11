@@ -193,12 +193,11 @@
   }
   .files-pane {
     position: absolute;
-    top: 130px;
-    right: 8px;
-    bottom: 42px;
-    width: min(360px, calc(100vw - 16px));
+    inset: 0 0 0 auto;
+    width: min(360px, 100%);
     z-index: 2;
   }
+  .terminal-and-files { position: relative; }
   footer {
     flex: none;
     min-height: 30px;
@@ -206,14 +205,8 @@
 }
 
 @media (max-width: 500px) {
-  .search-label {
-    display: none;
-  }
   .toolbar button {
     padding: 6px 8px;
     font-size: 12px;
-  }
-  .files-pane {
-    top: 104px;
   }
 }

@@ -36,7 +36,7 @@
           <label>SSH password or key passphrase, if not saved<input name="secret" type="password" autocomplete="off"></label>
           <label id="elevated-confirm-field" class="elevated-confirm hidden"><input name="elevated_confirmed" type="checkbox">I explicitly approve this elevated SSH session for the stated purpose.</label>
           <p id="decision-hint" class="hint"></p>
-          <div class="actions"><button type="button" id="deny">Deny request</button><button type="submit" class="primary">Approve connection</button></div>
+          <div class="actions"><button type="button" id="deny" class="danger">Deny request</button><button type="submit" class="primary">Approve connection</button></div>
         </form>
         <div id="host-key" class="host-key hidden"><h2>Verify server identity</h2><p>Compare this fingerprint with a trusted source before continuing.</p><code id="fingerprint"></code><p id="previous-key" class="error"></p><div class="actions"><button id="host-cancel">Cancel</button><button id="host-trust" class="primary">Trust key and retry</button></div></div>
         <p id="decision-error" class="error" role="alert"></p>

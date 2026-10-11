@@ -252,9 +252,11 @@ class Store:
                 "shell": profile.get("shell", "default"),
                 "capabilities": ["terminal", "files"] + ([] if profile.get("platform") == "windows" else ["sudo", "chmod", "symlink"]),
             }
-        return {**{k: v for k, v in profile.items() if k not in {"secret", "sudo_secret"}},
+        return {**{k: v for k, v in profile.items() if k not in {"secret", "sudo_secret", "elevated_secret", "elevated_sudo_secret"}},
                 "has_saved_secret": bool(profile.get("secret")),
-                "has_saved_sudo_secret": bool(profile.get("sudo_secret"))}
+                "has_saved_sudo_secret": bool(profile.get("sudo_secret")),
+                "has_saved_elevated_secret": bool(profile.get("elevated_secret")),
+                "has_saved_elevated_sudo_secret": bool(profile.get("elevated_sudo_secret"))}
 
     def profile(self, profile_id: str) -> dict:
         return next((p for p in self.profiles() if p["id"] == profile_id), None) or _missing("Connection")
@@ -434,6 +436,7 @@ class Audit:
         self._summaries[grant] = {
             "grant": grant, "agent": context.get("agent"), "agentId": context.get("agentId"),
             "connection": context.get("connection"), "purpose": context.get("purpose"),
+            "privilege": context.get("privilege", "legacy"),
             "lastUtc": record["utc"],
         }
 

@@ -45,6 +45,12 @@
     $('#request-title').textContent = grant.state === 'Pending' ? 'Review access request' : 'Request ' + grant.state.toLowerCase();
     $('#request-agent').textContent = grant.agent;
     $('#request-machine').textContent = grant.connection;
+    $('#request-tier').textContent = (grant.privilege || 'legacy').toUpperCase();
+    const elevated = grant.privilege === 'elevated';
+    $('#request-title').textContent = elevated && grant.state === 'Pending' ? 'Review ELEVATED access request' : $('#request-title').textContent;
+    $('#elevated-warning').classList.toggle('hidden', !elevated);
+    $('#elevated-confirm-field').classList.toggle('hidden', !elevated);
+    $('#decision-form').elements.elevated_confirmed.required = elevated;
     $('#request-files').textContent = ({None:'No file access', Remote:'Remote files', LocalTransfers:'Remote files and local transfers'})[grant.fileAccess] || grant.fileAccess;
     $('#request-purpose').textContent = grant.purpose;
     const active = grant.state === 'Pending';
@@ -94,7 +100,8 @@
       ...(form.elements.duration_hours.value === 'permanent' ? {permanent:true} :
          form.elements.duration_hours.value ? {duration_hours:Number(form.elements.duration_hours.value)} : {}),
       ...(form.elements.local_folder.value ? {local_folder:form.elements.local_folder.value} : {}),
-      ...(form.elements.secret.value ? {secret:form.elements.secret.value} : {})
+      ...(form.elements.secret.value ? {secret:form.elements.secret.value} : {}),
+      ...(form.elements.elevated_confirmed.checked ? {elevated_confirmed:true} : {})
     } : {};
     try {
       const grant = await api(`/api/grants/${grantId}/${action}`,'POST',payload);

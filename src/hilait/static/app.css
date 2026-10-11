@@ -18,6 +18,8 @@ a { color: var(--accent); }
 .primary { color: var(--on-primary); background: var(--primary); border-color: var(--primary); font-weight: 600; }
 .primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
 .danger { color: var(--danger); background: transparent; border-color: var(--danger); }
+.elevated-request { border: 2px solid var(--danger); padding: 12px; border-radius: 8px; }
+.elevated-request strong { color: var(--danger); }
 .danger:hover { background: var(--danger-soft); }
 .error { color: var(--danger) !important; }
 .icon { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; padding: 8px; }

@@ -18,7 +18,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
-from .agents import AGENT_WARNING, AgentRuntime, ENDED, SCOPES
+from .agents import (AGENT_WARNING, ELEVATED_WARNING, AgentRuntime, ENDED, SCOPES,
+                     login_profile, resolve_privilege)
 from .admin_auth import AdminAuth, RateLimitError
 from .enrollment import AgentEnrollment
 from .files import FileService
@@ -66,7 +67,8 @@ class Runtime:
             "sessions": [{"id": session.id, "profile": session.profile["id"],
                           "connection": session.profile["name"], "owner": session.owner,
                           "purpose": session.purpose, "createdUtc": session.created_utc,
-                          "state": session.state, "grant": session.grant_id}
+                          "state": session.state, "grant": session.grant_id,
+                          "privilege": session.profile.get("privilege", "legacy")}
                          for session in self.sessions.sessions.values()],
             "agents": [{k: v for k, v in agent.items() if k not in {"token", "token_hash"}}
                        for agent in self.store.agents()],
@@ -113,34 +115,43 @@ def create_app(root: Path | None = None) -> FastAPI:
             previous = runtime.reviewer.results().get(grant_id)
             result = await runtime.reviewer.review(grant_id, lambda message: runtime.agents._notify(
                 {"type": "review_progress", "grant": grant_id, "message": message}))
-            thresholds = runtime.reviewer.settings()["revoke_thresholds"]
+            grant = runtime.agents.grants.get(grant_id)
+            records = runtime.audit.session(grant_id) if not grant else []
+            context = next((record.get("context", {}) for record in records
+                            if record.get("context", {}).get("agentId") and record.get("context", {}).get("profile")), {})
+            tier = grant.privilege if grant else context.get("privilege", "legacy")
+            settings = runtime.reviewer.settings()
+            thresholds = (settings["elevated_revoke_thresholds"] if tier == "elevated"
+                          else settings["revoke_thresholds"])
             triggered = {axis: {"score": result.get(axis), "threshold": limit}
                          for axis, limit in thresholds.items()
                          if limit is not None and type(result.get(axis)) is int and result[axis] <= limit}
             handled = runtime.store.read("review-revocations.json", {})
             if triggered and handled.get(grant_id) != result["reviewed_utc"]:
-                grant = runtime.agents.grants.get(grant_id)
-                records = runtime.audit.session(grant_id) if not grant else []
-                context = next((record.get("context", {}) for record in records
-                                if record.get("context", {}).get("agentId") and record.get("context", {}).get("profile")), {})
                 agent_id = grant.agent_id if grant else context.get("agentId")
                 profile_id = grant.profile_id if grant else context.get("profile")
+                revoke_all = bool(settings["revoke_all_tiers_on_safety"] and "safety" in triggered)
                 changed = False
                 reason = "Review score at or below configured revocation threshold"
                 if agent_id and profile_id:
                     for authorization in runtime.agents.authorizations():
                         if (authorization["agent_id"] == agent_id and authorization["profile_id"] == profile_id
-                                and not authorization["revoked"]):
+                                and not authorization["revoked"]
+                                and (revoke_all or authorization.get("privilege", "legacy") == tier)):
                             runtime.agents.revoke_authorization(authorization["id"], reason)
                             changed = True
-                if grant and grant.state not in {"Denied", "Expired", "Revoked", "Closed"}:
-                    runtime.agents.change(grant, "Revoked", reason)
-                    changed = True
+                for affected in list(runtime.agents.grants.values()):
+                    if (affected.agent_id == agent_id and affected.profile_id == profile_id
+                            and (revoke_all or affected.privilege == tier) and affected.state not in ENDED):
+                        runtime.agents.change(affected, "Revoked", reason)
+                        changed = True
                 if changed:
                     runtime.audit.write("review_access_revoked", {"grant": grant_id, "agentId": agent_id,
-                                                                   "profile": profile_id}, {"triggered": triggered})
+                                                                   "profile": profile_id, "privilege": tier},
+                                        {"triggered": triggered, "allTiers": revoke_all})
                     for affected in list(runtime.agents.grants.values()):
                         if (affected.agent_id == agent_id and affected.profile_id == profile_id
+                                and (revoke_all or affected.privilege == tier)
                                 and affected.state == "Revoked" and affected.session_id
                                 and affected.session_id in runtime.sessions.sessions):
                             await runtime.sessions.close(affected.session_id, reason)
@@ -337,15 +348,39 @@ def create_app(root: Path | None = None) -> FastAPI:
         allowed = payload.get("allowed_agent_ids", old.get("allowed_agent_ids"))
         if allowed is not None and not isinstance(allowed, list):
             raise ValueError("Allowed agents must be a list or null for all agents.")
+        elevated_allowed = payload.get("elevated_allowed_agent_ids", old.get("elevated_allowed_agent_ids", []))
+        if not isinstance(elevated_allowed, list):
+            raise ValueError("Elevated agents must be an explicit list.")
+        mode = payload.get("access_mode", old.get("access_mode", "legacy"))
+        if mode not in {"legacy", "tiered"}:
+            raise ValueError("Choose legacy or tiered agent access.")
+        elevated_username = str(payload.get("elevated_username", old.get("elevated_username", ""))).strip()
+        confirmed = payload.get("normal_unprivileged_confirmed", old.get("normal_unprivileged_confirmed", False)) is True
+        if (mode == "tiered" and old and old.get("username") != username
+                and payload.get("normal_unprivileged_confirmed") is not True):
+            raise ValueError("Reconfirm that the new normal SSH account cannot elevate itself.")
+        if mode == "tiered" and (payload.get("platform", old.get("platform", "unix")) != "unix" or not confirmed):
+            raise ValueError("Tiered access currently requires Unix and confirmation that the normal SSH account cannot elevate itself.")
+        if elevated_username and elevated_username == username:
+            raise ValueError("Normal and elevated access must use different SSH accounts.")
         profile = {"id": profile_id, "name": name, "host": host, "port": port,
                    "username": username, "platform": payload.get("platform", old.get("platform", "unix")),
                    "shell": payload.get("shell", old.get("shell", "default")),
                    "private_key": payload.get("private_key", old.get("private_key", "")),
                    "allowed_agent_ids": allowed,
+                   "access_mode": mode, "normal_unprivileged_confirmed": confirmed,
+                   "elevated_username": elevated_username,
+                   "elevated_private_key": payload.get("elevated_private_key", old.get("elevated_private_key", "")),
+                   "elevated_allowed_agent_ids": elevated_allowed,
+                   "elevated_sudo_policy": payload.get("elevated_sudo_policy", old.get("elevated_sudo_policy", "per_request")),
                    "agent_idle_timeout_minutes": int(payload.get("agent_idle_timeout_minutes", old.get("agent_idle_timeout_minutes", 10))),
                    "sudo_policy": payload.get("sudo_policy", old.get("sudo_policy", "per_request")),
-                   "secret": old.get("secret"), "sudo_secret": old.get("sudo_secret")}
-        if profile["platform"] not in {"unix", "windows"} or profile["sudo_policy"] not in {"per_request", "per_connection", "per_authorization", "never"}:
+                   "secret": old.get("secret"), "sudo_secret": old.get("sudo_secret"),
+                   "elevated_secret": old.get("elevated_secret"),
+                   "elevated_sudo_secret": old.get("elevated_sudo_secret")}
+        policies = {"per_request", "per_connection", "per_authorization", "never"}
+        if (profile["platform"] not in {"unix", "windows"} or profile["sudo_policy"] not in policies
+                or profile["elevated_sudo_policy"] not in policies):
             raise ValueError("Invalid platform or sudo approval mode.")
         if payload.get("secret"):
             profile["secret"] = runtime.store.encrypt(payload["secret"])
@@ -355,20 +390,51 @@ def create_app(root: Path | None = None) -> FastAPI:
             profile["sudo_secret"] = runtime.store.encrypt(payload["sudo_secret"])
         if payload.get("clear_sudo_secret"):
             profile["sudo_secret"] = None
+        if payload.get("elevated_secret"):
+            profile["elevated_secret"] = runtime.store.encrypt(payload["elevated_secret"])
+        if payload.get("clear_elevated_secret"):
+            profile["elevated_secret"] = None
+        if payload.get("elevated_sudo_secret"):
+            profile["elevated_sudo_secret"] = runtime.store.encrypt(payload["elevated_sudo_secret"])
+        if payload.get("clear_elevated_sudo_secret"):
+            profile["elevated_sudo_secret"] = None
+        revisions = dict(old.get("credential_revisions", {"legacy": 0, "normal": 1, "elevated": 1}))
+        changed_tiers = set()
+        if old:
+            if old.get("access_mode", "legacy") != mode or any(old.get(key) != profile.get(key) for key in ("host", "port", "platform")):
+                changed_tiers = {"legacy", "normal", "elevated"}
+            else:
+                if any(old.get(key) != profile.get(key) for key in ("username", "private_key", "secret", "sudo_secret", "sudo_policy")):
+                    changed_tiers.update({"legacy", "normal"})
+                if any(old.get(key) != profile.get(key) for key in ("elevated_username", "elevated_private_key", "elevated_secret", "elevated_sudo_secret", "elevated_sudo_policy")):
+                    changed_tiers.add("elevated")
+            if changed_tiers and any(session.profile["id"] == profile_id and session.profile.get("privilege", "legacy") in changed_tiers
+                                     for session in runtime.sessions.sessions.values()):
+                raise ValueError("Close this machine's affected SSH sessions before changing access credentials or tiers.")
+            for tier in changed_tiers:
+                revisions[tier] = revisions.get(tier, 0) + 1
+        profile["credential_revisions"] = revisions
         if old:
             profiles = [profile if p["id"] == profile_id else p for p in profiles]
-            if old.get("allowed_agent_ids") != allowed:
-                for grant in runtime.agents.grants.values():
-                    if grant.profile_id == profile_id and allowed is not None and grant.agent_id not in allowed and grant.state not in ENDED:
-                        runtime.agents.change(grant, "Revoked", "Connection permission removed")
-                authorizations = runtime.agents.authorizations()
-                for authorization in authorizations:
-                    if authorization["profile_id"] == profile_id and allowed is not None and authorization["agent_id"] not in allowed:
-                        authorization["revoked"] = True
-                runtime.store.write("authorizations.json", authorizations)
         else:
             profiles.append(profile)
         runtime.store.save_profiles(profiles)
+        if old:
+            def invalid(agent_id: str, tier: str) -> bool:
+                return (tier in changed_tiers
+                        or (tier in {"normal", "legacy"} and allowed is not None and agent_id not in allowed)
+                        or (tier == "elevated" and agent_id not in elevated_allowed))
+            authorizations = runtime.agents.authorizations()
+            for authorization in authorizations:
+                tier = authorization.get("privilege", "legacy")
+                if authorization["profile_id"] == profile_id and not authorization["revoked"] and invalid(authorization["agent_id"], tier):
+                    authorization["revoked"] = True
+            runtime.store.write("authorizations.json", authorizations)
+            for grant in list(runtime.agents.grants.values()):
+                if grant.profile_id == profile_id and grant.state not in ENDED and invalid(grant.agent_id, grant.privilege):
+                    runtime.agents.change(grant, "Revoked", "Connection tier, credential, or permission changed")
+                    if grant.session_id and grant.session_id in runtime.sessions.sessions:
+                        await runtime.sessions.close(grant.session_id, "Connection access changed")
         runtime.agents._notify({"type": "profiles"})
         return runtime.store.public_profile(profile)
 
@@ -416,7 +482,7 @@ def create_app(root: Path | None = None) -> FastAPI:
     @app.post("/api/sessions", dependencies=[Depends(admin)])
     async def connect_manual(payload: dict):
         profile = runtime.store.profile(payload["profile"])
-        session = await runtime.sessions.open(profile, secret=payload.get("secret"))
+        session = await runtime.sessions.open(login_profile(profile, payload.get("privilege")), secret=payload.get("secret"))
         runtime.agents._notify({"type": "session_opened", "session": session.id, "profile": profile["id"]})
         return {"session": session.id}
 
@@ -448,10 +514,16 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @app.post("/api/agents/{agent_id}/permissions", dependencies=[Depends(admin)])
     async def agent_permissions(agent_id: str, payload: dict):
+        if not any(agent["id"] == agent_id and agent["active"] for agent in runtime.store.agents()):
+            raise KeyError("Active agent not found.")
         selected = set(payload.get("connection_ids", []))
         profiles = runtime.store.profiles()
         if not selected <= {p["id"] for p in profiles}:
             raise ValueError("Unknown connection in permissions.")
+        elevated = set(payload["elevated_connection_ids"]) if "elevated_connection_ids" in payload else {
+            p["id"] for p in profiles if agent_id in p.get("elevated_allowed_agent_ids", [])}
+        if not elevated <= {p["id"] for p in profiles if p.get("access_mode") == "tiered" and p.get("elevated_username")}:
+            raise ValueError("Unknown or unconfigured elevated connection in permissions.")
         for profile in profiles:
             allowed = profile.get("allowed_agent_ids")
             if profile["id"] in selected:
@@ -461,16 +533,27 @@ def create_app(root: Path | None = None) -> FastAPI:
                 profile["allowed_agent_ids"] = [a["id"] for a in runtime.store.agents() if a["id"] != agent_id and a["active"]]
             else:
                 profile["allowed_agent_ids"] = [value for value in allowed if value != agent_id]
+            elevated_allowed = set(profile.get("elevated_allowed_agent_ids", []))
+            if profile["id"] in elevated:
+                elevated_allowed.add(agent_id)
+            else:
+                elevated_allowed.discard(agent_id)
+            profile["elevated_allowed_agent_ids"] = sorted(elevated_allowed)
         runtime.store.save_profiles(profiles)
         authorizations = runtime.agents.authorizations()
         for authorization in authorizations:
-            if authorization["agent_id"] == agent_id and authorization["profile_id"] not in selected:
+            tier = authorization.get("privilege", "legacy")
+            if (authorization["agent_id"] == agent_id and
+                    (authorization["profile_id"] not in (elevated if tier == "elevated" else selected))):
                 authorization["revoked"] = True
         runtime.store.write("authorizations.json", authorizations)
-        for grant in runtime.agents.grants.values():
-            if grant.agent_id == agent_id and grant.profile_id not in selected and grant.state not in ENDED:
+        for grant in list(runtime.agents.grants.values()):
+            if (grant.agent_id == agent_id and grant.profile_id not in
+                    (elevated if grant.privilege == "elevated" else selected) and grant.state not in ENDED):
                 runtime.agents.change(grant, "Revoked", "Agent connection permission removed")
-        return {"connection_ids": list(selected)}
+                if grant.session_id and grant.session_id in runtime.sessions.sessions:
+                    await runtime.sessions.close(grant.session_id, "Agent connection permission removed")
+        return {"connection_ids": sorted(selected), "elevated_connection_ids": sorted(elevated)}
 
     @app.post("/api/agents/{agent_id}/revoke", dependencies=[Depends(admin)])
     async def revoke_agent(agent_id: str):
@@ -480,9 +563,11 @@ def create_app(root: Path | None = None) -> FastAPI:
             raise KeyError("Agent not found.")
         target["active"] = False
         runtime.store.write("agents.json", agents)
-        for grant in runtime.agents.grants.values():
+        for grant in list(runtime.agents.grants.values()):
             if grant.agent_id == agent_id and grant.state not in ENDED:
                 runtime.agents.change(grant, "Revoked", "Agent token revoked")
+                if grant.session_id and grant.session_id in runtime.sessions.sessions:
+                    await runtime.sessions.close(grant.session_id, "Agent token revoked")
         return {"revoked": agent_id}
 
     @app.delete("/api/agents/{agent_id}", dependencies=[Depends(admin)])
@@ -494,15 +579,19 @@ def create_app(root: Path | None = None) -> FastAPI:
         for profile in profiles:
             if profile.get("allowed_agent_ids") is not None:
                 profile["allowed_agent_ids"] = [value for value in profile["allowed_agent_ids"] if value != agent_id]
+            profile["elevated_allowed_agent_ids"] = [value for value in profile.get("elevated_allowed_agent_ids", []) if value != agent_id]
         runtime.store.save_profiles(profiles)
         return {"deleted": agent_id}
 
     @app.post("/api/authorizations", dependencies=[Depends(admin)])
     async def create_authorization(payload: dict):
+        if payload.get("privilege") == "elevated" and payload.get("elevated_confirmed") is not True:
+            raise ValueError("Explicitly confirm elevated standing authorization.")
         return runtime.agents.create_authorization(payload["agent_id"], payload["profile_id"],
                                                    None if payload.get("permanent") is True else float(payload["hours"]),
                                                    payload.get("file_access", "None"), payload.get("local_folder"),
-                                                   permanent=payload.get("permanent") is True)
+                                                   permanent=payload.get("permanent") is True,
+                                                   privilege=payload.get("privilege"))
 
     @app.post("/api/authorizations/{authorization_id}/extend", dependencies=[Depends(admin)])
     async def extend_authorization(authorization_id: str, payload: dict):
@@ -510,7 +599,17 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @app.post("/api/authorizations/{authorization_id}/revoke", dependencies=[Depends(admin)])
     async def revoke_authorization(authorization_id: str):
+        authorization = next((a for a in runtime.agents.authorizations() if a["id"] == authorization_id), None)
+        if authorization is None:
+            raise KeyError("Authorization not found.")
         runtime.agents.revoke_authorization(authorization_id)
+        for grant in list(runtime.agents.grants.values()):
+            if (grant.agent_id == authorization["agent_id"]
+                    and grant.profile_id == authorization["profile_id"]
+                    and grant.privilege == authorization.get("privilege", "legacy")
+                    and grant.state == "Revoked" and grant.session_id
+                    and grant.session_id in runtime.sessions.sessions):
+                await runtime.sessions.close(grant.session_id, "Authorization revoked")
         return {"revoked": authorization_id}
 
     @app.get("/api/grants/{grant_id}", dependencies=[Depends(admin)])
@@ -522,6 +621,8 @@ def create_app(root: Path | None = None) -> FastAPI:
     async def grant_action(grant_id: str, action: str, payload: dict):
         grant = runtime.agents.pending(grant_id)
         if action == "approve":
+            if grant.privilege == "elevated" and payload.get("elevated_confirmed") is not True:
+                raise ValueError("Explicitly confirm this elevated SSH connection.")
             return (await runtime.agents.approve(grant_id, local_folder=payload.get("local_folder"),
                         duration_hours=payload.get("duration_hours"), secret=payload.get("secret"),
                         permanent=payload.get("permanent") is True)).public()
@@ -539,6 +640,8 @@ def create_app(root: Path | None = None) -> FastAPI:
             runtime.agents.change(grant, "Approved", "Resumed by user")
         elif action == "revoke":
             runtime.agents.change(grant, "Revoked", "Revoked by user")
+            if grant.session_id and grant.session_id in runtime.sessions.sessions:
+                await runtime.sessions.close(grant.session_id, "Agent access revoked by user")
         else:
             raise ValueError("Unknown access action.")
         return grant.public()
@@ -731,10 +834,12 @@ async def run_agent_tool(runtime: Runtime, identity: dict, tool: str, payload: d
     if tool == "connections":
         return agents.visible_connections(identity)
     if tool == "request_access":
-        grant = await agents.request(identity, payload["connection"], payload["purpose"], payload.get("fileAccess", "None"))
-        return {**grant.public(), "warning": AGENT_WARNING}
+        grant = await agents.request(identity, payload["connection"], payload["purpose"],
+                                     payload.get("fileAccess", "None"), payload.get("privilege"))
+        return {**grant.public(), "warning": ELEVATED_WARNING if grant.privilege == "elevated" else AGENT_WARNING}
     if tool == "access_status":
-        return {**agents.owned(identity, payload["access"]).public(), "warning": AGENT_WARNING}
+        grant = agents.owned(identity, payload["access"])
+        return {**grant.public(), "warning": ELEVATED_WARNING if grant.privilege == "elevated" else AGENT_WARNING}
     if tool == "release_access":
         return await agents.release(identity, payload["access"], bool(payload.get("closeConnection", False)))
     if tool in {"terminal_write", "terminal_read", "terminal_screen", "files", "copy", "request_sudo"}:
@@ -764,12 +869,16 @@ async def run_agent_tool(runtime: Runtime, identity: dict, tool: str, payload: d
             target_id = None
             if payload.get("direction") == "remote":
                 other = agents.owned(identity, payload.get("destinationAccess") or grant.id, active=True, files=True)
+                if other.privilege != grant.privilege:
+                    raise PermissionError("Cross-tier copies require a separate human-controlled transfer.")
                 target_id = other.session_id
             def copy_guard():
                 agents.owned(identity, grant.id, active=True, files=True,
                              local=payload["direction"] in {"upload", "download"})
                 if payload["direction"] == "remote":
-                    agents.owned(identity, payload.get("destinationAccess") or grant.id, active=True, files=True)
+                    other = agents.owned(identity, payload.get("destinationAccess") or grant.id, active=True, files=True)
+                    if other.privilege != grant.privilege:
+                        raise PermissionError("Cross-tier copies require a separate human-controlled transfer.")
             return await files.copy(session_id, payload["direction"], payload["path"], payload["destination"],
                                     destination_id=target_id, local_folder=grant.local_folder, guard=copy_guard)
         if tool == "request_sudo":
@@ -778,14 +887,16 @@ async def run_agent_tool(runtime: Runtime, identity: dict, tool: str, payload: d
 
 
 async def _sudo(runtime: Runtime, grant, command: str, reason: str) -> dict:
-    profile = runtime.store.profile(grant.profile_id)
+    if grant.privilege == "normal":
+        raise PermissionError("Managed sudo is disabled for normal access. Request a separate elevated session.")
+    profile = login_profile(runtime.store.profile(grant.profile_id), grant.privilege)
     if profile.get("platform") == "windows":
         raise ValueError("Managed sudo is unavailable on Windows SSH connections.")
     if not command.strip() or not reason.strip():
         raise ValueError("State the command and reason for sudo.")
     policy = profile.get("sudo_policy", "per_request")
     saved = runtime.store.decrypt(profile.get("sudo_secret"))
-    authorization = runtime.agents.active_authorization(grant.agent_id, grant.profile_id)
+    authorization = runtime.agents.active_authorization(grant.agent_id, grant.profile_id, grant.privilege)
     consent_key = grant.id if policy == "per_connection" else authorization["id"] if policy == "per_authorization" and authorization else grant.id
     ask = not saved or policy == "per_request" or policy != "never" and consent_key not in runtime.sudo_consents
     password = saved

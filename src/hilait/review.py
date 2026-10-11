@@ -133,11 +133,15 @@ class Reviewer:
     def settings(self) -> dict:
         defaults = {"provider": "local", "endpoint": "", "model": "", "mode": "on_demand",
                     "review_level": "deep", "api_key": "", "alert_thresholds": {axis: None for axis in AXES},
-                    "revoke_thresholds": {axis: None for axis in AXES}}
+                    "revoke_thresholds": {axis: None for axis in AXES},
+                    "elevated_revoke_thresholds": {axis: None for axis in AXES},
+                    "revoke_all_tiers_on_safety": False}
         saved = self.store.read("review-settings.json", {})
         return {**defaults, **saved,
                 "alert_thresholds": {**defaults["alert_thresholds"], **saved.get("alert_thresholds", {})},
-                "revoke_thresholds": {**defaults["revoke_thresholds"], **saved.get("revoke_thresholds", {})}}
+                "revoke_thresholds": {**defaults["revoke_thresholds"], **saved.get("revoke_thresholds", {})},
+                "elevated_revoke_thresholds": {**defaults["elevated_revoke_thresholds"],
+                                                **saved.get("elevated_revoke_thresholds", {})}}
 
     def public_settings(self) -> dict:
         saved = self.settings()
@@ -167,11 +171,16 @@ class Reviewer:
             return validated
         alerts = validate_thresholds("alert_thresholds")
         revocations = validate_thresholds("revoke_thresholds")
+        elevated_revocations = validate_thresholds("elevated_revoke_thresholds")
+        revoke_all = values.get("revoke_all_tiers_on_safety", old["revoke_all_tiers_on_safety"])
+        if not isinstance(revoke_all, bool):
+            raise ValueError("Cross-tier safety revocation must be enabled or disabled.")
         key = str(values.get("api_key") or "").strip()
         same_connection = provider == old["provider"] and endpoint == (old["endpoint"] or ENDPOINTS[provider])
         settings = {"provider": provider, "endpoint": endpoint, "model": str(values.get("model", old["model"])).strip(),
                     "mode": mode, "review_level": level, "alert_thresholds": alerts,
-                    "revoke_thresholds": revocations,
+                    "revoke_thresholds": revocations, "elevated_revoke_thresholds": elevated_revocations,
+                    "revoke_all_tiers_on_safety": revoke_all,
                     "api_key": "" if values.get("clear_api_key") is True else self.store.encrypt(key) if key else old["api_key"] if same_connection else ""}
         self.store.write("review-settings.json", settings)
         return self.public_settings()

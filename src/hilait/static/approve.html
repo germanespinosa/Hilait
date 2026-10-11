@@ -25,14 +25,16 @@
       <section id="request" class="card hidden">
         <p class="eyebrow">CONNECTION REQUEST</p>
         <h1 id="request-title"></h1>
-        <dl><div><dt>Agent</dt><dd id="request-agent"></dd></div><div><dt>Machine</dt><dd id="request-machine"></dd></div><div><dt>Files</dt><dd id="request-files"></dd></div></dl>
+        <dl><div><dt>Agent</dt><dd id="request-agent"></dd></div><div><dt>Machine</dt><dd id="request-machine"></dd></div><div><dt>Tier</dt><dd id="request-tier"></dd></div><div><dt>Files</dt><dd id="request-files"></dd></div></dl>
         <h2>Stated purpose</h2><p id="request-purpose" class="purpose"></p>
+        <p id="elevated-warning" class="elevated-warning hidden">ELEVATED SSH ACCESS: This opens a separate privileged account. Review the purpose, file scope, and duration carefully. Activity is recorded and reviewed; misuse can revoke access.</p>
         <p id="request-state" class="state hidden"></p>
         <form id="decision-form">
           <label>Approval duration<select name="duration_hours"><option value="">This request only</option><option value="0.083333">5 minutes</option><option value="0.25">15 minutes</option><option value="0.5">30 minutes</option><option value="1">1 hour</option><option value="2">2 hours</option><option value="4">4 hours</option><option value="8">8 hours</option><option value="24">24 hours</option><option value="permanent">Permanent until revoked</option></select></label>
           <p class="hint">A duration approves future requests from this agent for this machine and file scope only.</p>
           <label id="folder-field" class="hidden">Local transfer folder on the Hilait server<input name="local_folder" autocomplete="off"></label>
           <label>SSH password or key passphrase, if not saved<input name="secret" type="password" autocomplete="off"></label>
+          <label id="elevated-confirm-field" class="elevated-confirm hidden"><input name="elevated_confirmed" type="checkbox">I explicitly approve this elevated SSH session for the stated purpose.</label>
           <p id="decision-hint" class="hint"></p>
           <div class="actions"><button type="button" id="deny">Deny request</button><button type="submit" class="primary">Approve connection</button></div>
         </form>

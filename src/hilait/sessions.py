@@ -74,7 +74,8 @@ class Session:
 
     def context(self) -> dict:
         return {"session": self.id, "grant": self.grant_id, "profile": self.profile["id"],
-                "connection": self.profile["name"], "agent": self.owner, "purpose": self.purpose}
+                "connection": self.profile["name"], "agent": self.owner, "purpose": self.purpose,
+                "privilege": self.profile.get("privilege", "legacy")}
 
     def read(self, cursor: int = 0) -> dict:
         with self.output_lock:

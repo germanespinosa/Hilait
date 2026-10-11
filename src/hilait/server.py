@@ -494,14 +494,9 @@ def create_app(root: Path | None = None) -> FastAPI:
         contexts: dict[str, dict] = {}
         results = runtime.reviewer.results()
         pending = set(runtime.reviewer.pending())
-        for record in runtime.audit.records():
-            context = record.get("context") or {}
-            grant = context.get("grant")
-            if grant:
-                contexts[grant] = {"grant": grant, "agent": context.get("agent"),
-                                   "agentId": context.get("agentId"), "connection": context.get("connection"),
-                                   "purpose": context.get("purpose"), "lastUtc": record["utc"],
-                                   "review": results.get(grant), "needsReview": grant in pending}
+        for context in runtime.audit.log_summaries():
+            grant = context["grant"]
+            contexts[grant] = {**context, "review": results.get(grant), "needsReview": grant in pending}
         return sorted(contexts.values(), key=lambda item: item["lastUtc"], reverse=True)
 
     @app.get("/api/logs/{grant_id}", dependencies=[Depends(admin)])

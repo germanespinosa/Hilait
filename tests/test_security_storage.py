@@ -58,8 +58,10 @@ def test_audit_and_secrets_are_owner_only(tmp_path):
     store = Store(tmp_path / "data")
     audit = Audit(store)
     audit.write("test", {}, {})
-    for name in ("activity.audit", "master.key", "admin.token"):
+    for name in ("master.key", "admin.token", "activity-records.current"):
         assert (store.root / name).stat().st_mode & 0o077 == 0
+    assert audit._record_path(1).stat().st_mode & 0o077 == 0
+    assert audit.path.stat().st_mode & 0o077 == 0
     (store.root / "admin.token").chmod(0o644)
     with pytest.raises(PermissionError, match="mode 0600"):
         Store(store.root)

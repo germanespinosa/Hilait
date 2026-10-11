@@ -8,6 +8,7 @@ import hmac
 import json
 import os
 import secrets
+import shutil
 import stat
 import tempfile
 import threading
@@ -44,6 +45,15 @@ def _private_directory(path: Path) -> None:
     if os.name != "nt":
         if details.st_uid != os.geteuid() or details.st_mode & 0o077:
             raise PermissionError(f"Hilait data directory must be owned by this account and mode 0700: {path}")
+
+
+def _sync_directory(path: Path) -> None:
+    if os.name != "nt":
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
 
 
 def _atomic_bytes(path: Path, value: bytes) -> None:
@@ -286,70 +296,215 @@ class Audit:
 
     def __init__(self, store: Store) -> None:
         self.store = store
-        self.path = store.root / "activity.audit"
+        self.legacy_path = store.root / "activity.audit"
+        self.path = store.root / "activity-records"
+        self.index_path = store.root / "activity-records.current"
         self.lock = threading.RLock()
+        self.path.mkdir(mode=0o700, exist_ok=True)
+        _private_directory(self.path)
+        if self.index_path.exists() or self.index_path.is_symlink():
+            _private_file(self.index_path)
+            self.generation = self.index_path.read_text(encoding="ascii").strip()
+            if not self.generation.isascii() or len(self.generation) != 32 or any(c not in "0123456789abcdef" for c in self.generation):
+                raise ValueError("Audit record index is damaged.")
+            _private_directory(self.path / self.generation)
+        else:
+            self.generation = self._new_generation()
+            if self.legacy_path.exists() or self.legacy_path.is_symlink():
+                _private_file(self.legacy_path)
+                self._migrate_legacy()
+            else:
+                self._activate(self.generation)
         records = self.records()
         self.sequence = len(records)
         self.previous = records[-1]["_hash"] if records else ""
+        self._index_records(records)
+        # A crash after activating the new layout can leave the verified old file.
+        if self.legacy_path.exists() or self.legacy_path.is_symlink():
+            _private_file(self.legacy_path)
+            if self._legacy_matches(records):
+                self.legacy_path.unlink()
+        self._clean_orphan_generations()
 
-    def records(self) -> list[dict]:
-        if not self.path.exists():
-            if self.path.is_symlink():
-                raise PermissionError("Hilait audit log must not be a symlink.")
-            return []
-        _private_file(self.path)
+    def _new_generation(self) -> str:
+        generation = uuid.uuid4().hex
+        (self.path / generation).mkdir(mode=0o700)
+        return generation
+
+    def _clean_orphan_generations(self) -> None:
+        for candidate in self.path.iterdir():
+            name = candidate.name
+            if (name != self.generation and len(name) == 32 and
+                    all(c in "0123456789abcdef" for c in name)):
+                _private_directory(candidate)
+                shutil.rmtree(candidate)
+
+    def _activate(self, generation: str) -> None:
+        _atomic_bytes(self.index_path, generation.encode("ascii"))
+        _sync_directory(self.store.root)
+        self.generation = generation
+
+    def _record_path(self, sequence: int, generation: str | None = None) -> Path:
+        return self.path / (generation or self.generation) / f"{(sequence - 1) // 1000:08d}" / f"{sequence:016d}.audit"
+
+    def _put_line(self, sequence: int, line: bytes, generation: str | None = None) -> None:
+        destination = self._record_path(sequence, generation)
+        new_shard = not destination.parent.exists()
+        destination.parent.mkdir(mode=0o700, exist_ok=True)
+        _private_directory(destination.parent)
+        if new_shard:
+            _sync_directory(destination.parent.parent)
+        fd, temporary = tempfile.mkstemp(prefix=".record-", dir=destination.parent)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(line)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.link(temporary, destination)
+            _sync_directory(destination.parent)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+    def _read_generation(self, generation: str) -> list[dict]:
+        root = self.path / generation
+        _private_directory(root)
         output: list[dict] = []
         previous = ""
-        for line in self.path.read_bytes().splitlines():
-            record = json.loads(self.store.cipher.decrypt(base64.b64decode(line)))
-            if record["sequence"] != len(output) + 1 or record["previous"] != previous:
-                raise ValueError("Audit chain is damaged.")
-            previous = hashlib.sha256(line).hexdigest()
-            record["_hash"] = previous
-            output.append(record)
+        for shard in sorted(root.iterdir()):
+            _private_directory(shard)
+            for path in sorted(shard.iterdir()):
+                if path.name.startswith(".record-"):
+                    _private_file(path)
+                    path.unlink()
+                    continue
+                if path.suffix != ".audit":
+                    raise ValueError("Unexpected audit record file.")
+                _private_file(path)
+                sequence = len(output) + 1
+                if path != self._record_path(sequence, generation):
+                    raise ValueError("Audit record chain is damaged.")
+                line = path.read_bytes()
+                record = json.loads(self.store.cipher.decrypt(base64.b64decode(line, validate=True)))
+                if record["sequence"] != sequence or record["previous"] != previous:
+                    raise ValueError("Audit record chain is damaged.")
+                previous = hashlib.sha256(line).hexdigest()
+                record["_hash"] = previous
+                output.append(record)
         return output
+
+    def _migrate_legacy(self) -> None:
+        previous = ""
+        sequence = 0
+        with self.legacy_path.open("rb") as source:
+            for raw in source:
+                line = raw.rstrip(b"\r\n")
+                record = json.loads(self.store.cipher.decrypt(base64.b64decode(line, validate=True)))
+                sequence += 1
+                if record["sequence"] != sequence or record["previous"] != previous:
+                    raise ValueError("Audit chain is damaged.")
+                self._put_line(sequence, line)
+                previous = hashlib.sha256(line).hexdigest()
+        self._activate(self.generation)
+
+    def _legacy_matches(self, records: list[dict]) -> bool:
+        count = 0
+        with self.legacy_path.open("rb") as source:
+            for sequence, raw in enumerate(source, 1):
+                count = sequence
+                if sequence > len(records):
+                    return False
+                if hashlib.sha256(raw.rstrip(b"\r\n")).hexdigest() != records[sequence - 1]["_hash"]:
+                    return False
+        return count == len(records)
+
+    def _index_records(self, records: list[dict]) -> None:
+        self._hashes = [record["_hash"] for record in records]
+        self._grants: dict[str, list[int]] = {}
+        self._summaries: dict[str, dict] = {}
+        for record in records:
+            self._index_record(record)
+
+    def _index_record(self, record: dict) -> None:
+        context = record.get("context") or {}
+        grant = context.get("grant")
+        if not grant:
+            return
+        self._grants.setdefault(grant, []).append(record["sequence"])
+        self._summaries[grant] = {
+            "grant": grant, "agent": context.get("agent"), "agentId": context.get("agentId"),
+            "connection": context.get("connection"), "purpose": context.get("purpose"),
+            "lastUtc": record["utc"],
+        }
+
+    def grant_ids(self) -> list[str]:
+        with self.lock:
+            return list(self._grants)
+
+    def grant_version(self, grant_id: str) -> tuple[str, int]:
+        with self.lock:
+            sequences = self._grants.get(grant_id, [])
+            return self.generation, sequences[-1] if sequences else 0
+
+    def log_summaries(self) -> list[dict]:
+        with self.lock:
+            return [dict(summary) for summary in self._summaries.values()]
+
+    def records(self) -> list[dict]:
+        with self.lock:
+            return self._read_generation(self.generation)
 
     def write(self, kind: str, context: dict, data: Any = None) -> dict:
         with self.lock:
-            if self.path.exists() or self.path.is_symlink():
-                _private_file(self.path)
             record = {"sequence": self.sequence + 1, "utc": utc_now(), "kind": kind,
                       "context": context, "data": data, "previous": self.previous}
             line = base64.b64encode(self.store.cipher.encrypt(json.dumps(record, ensure_ascii=False).encode()))
-            flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
-            fd = os.open(self.path, flags, 0o600)
-            with os.fdopen(fd, "ab") as stream:
-                stream.write(line + b"\n")
-                stream.flush()
-                os.fsync(stream.fileno())
+            self._put_line(self.sequence + 1, line)
             self.sequence += 1
             self.previous = hashlib.sha256(line).hexdigest()
+            self._hashes.append(self.previous)
+            self._index_record(record)
             return record
 
     def session(self, grant_id: str) -> list[dict]:
-        return [{k: v for k, v in record.items() if k != "_hash"} for record in self.records()
-                if record.get("context", {}).get("grant") == grant_id]
+        with self.lock:
+            output = []
+            for sequence in self._grants.get(grant_id, []):
+                path = self._record_path(sequence)
+                _private_file(path)
+                line = path.read_bytes()
+                if hashlib.sha256(line).hexdigest() != self._hashes[sequence - 1]:
+                    raise ValueError("Audit record chain is damaged.")
+                record = json.loads(self.store.cipher.decrypt(base64.b64decode(line, validate=True)))
+                if (record["sequence"] != sequence or
+                        record["previous"] != (self._hashes[sequence - 2] if sequence > 1 else "") or
+                        record.get("context", {}).get("grant") != grant_id):
+                    raise ValueError("Audit record chain is damaged.")
+                output.append(record)
+            return output
 
     def delete_session(self, grant_id: str) -> None:
         with self.lock:
             kept = [record for record in self.records() if record.get("context", {}).get("grant") != grant_id]
             previous = ""
-            fd, temporary = tempfile.mkstemp(prefix="activity.audit.", dir=self.store.root)
+            generation = self._new_generation()
             try:
-                with os.fdopen(fd, "wb") as stream:
-                    for sequence, record in enumerate(kept, 1):
-                        record = {k: v for k, v in record.items() if k != "_hash"}
-                        record["sequence"] = sequence
-                        record["previous"] = previous
-                        line = base64.b64encode(self.store.cipher.encrypt(json.dumps(record, ensure_ascii=False).encode()))
-                        stream.write(line + b"\n")
-                        previous = hashlib.sha256(line).hexdigest()
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                os.replace(temporary, self.path)
-            finally:
-                if os.path.exists(temporary):
-                    os.unlink(temporary)
+                for sequence, record in enumerate(kept, 1):
+                    record = {k: v for k, v in record.items() if k != "_hash"}
+                    record["sequence"] = sequence
+                    record["previous"] = previous
+                    line = base64.b64encode(self.store.cipher.encrypt(json.dumps(record, ensure_ascii=False).encode()))
+                    self._put_line(sequence, line, generation)
+                    previous = hashlib.sha256(line).hexdigest()
+                old_generation = self.generation
+                self._activate(generation)
+            except Exception:
+                shutil.rmtree(self.path / generation)
+                raise
             self.sequence = len(kept)
             self.previous = previous
-            self.write("session_log_deleted", {}, {"note": "A user deleted one ended session log."})
+            self._index_records(self._read_generation(generation))
+            try:
+                self.write("session_log_deleted", {}, {"note": "A user deleted one ended session log."})
+            finally:
+                shutil.rmtree(self.path / old_generation)

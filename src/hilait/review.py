@@ -127,6 +127,7 @@ class Reviewer:
         self.store, self.audit = store, audit
         self.progress: dict[str, str] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._evidence_hash_cache: dict[tuple[str, str], tuple[tuple[str, int], str]] = {}
 
     def settings(self) -> dict:
         defaults = {"provider": "local", "endpoint": "", "model": "", "mode": "on_demand",
@@ -209,11 +210,17 @@ class Reviewer:
         return {"reason_for_request": reason, "review_level": level, "events" if level == "deep" else "instructions": operations}
 
     def evidence_hash(self, grant_id: str, level: str = "deep") -> str:
-        return hashlib.sha256(json.dumps(self.evidence(grant_id, level), ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        version = self.audit.grant_version(grant_id)
+        key = (grant_id, level)
+        cached = self._evidence_hash_cache.get(key)
+        if cached and cached[0] == version:
+            return cached[1]
+        digest = hashlib.sha256(json.dumps(self.evidence(grant_id, level), ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        self._evidence_hash_cache[key] = (version, digest)
+        return digest
 
     def pending(self) -> list[str]:
-        grants = {r["context"]["grant"] for r in self.audit.records()
-                  if r.get("context", {}).get("grant") and r["kind"] not in {"activity_reviewed", "session_log_deleted"}}
+        grants = self.audit.grant_ids()
         settings = self.settings()
         results = self.results()
         return sorted(grant for grant in grants if grant not in results or

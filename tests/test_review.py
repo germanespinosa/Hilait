@@ -29,6 +29,23 @@ def recorded_session(tmp_path):
     return store, audit
 
 
+def test_evidence_hash_reuses_unchanged_session_index(tmp_path, monkeypatch):
+    store, audit = recorded_session(tmp_path)
+    reviewer = Reviewer(store, audit)
+    session = audit.session
+    reads = []
+    def counted(grant):
+        reads.append(grant)
+        return session(grant)
+    monkeypatch.setattr(audit, "session", counted)
+    original = reviewer.evidence_hash("grant-1")
+    assert reviewer.evidence_hash("grant-1") == original
+    assert reads == ["grant-1"]
+    audit.write("terminal_output", {"grant": "grant-1"}, {"base64": base64.b64encode(b"NEW OUTPUT").decode()})
+    assert reviewer.evidence_hash("grant-1") != original
+    assert reads == ["grant-1", "grant-1"]
+
+
 def test_light_review_explains_menu_input_without_sending_command_results(tmp_path):
     store = Store(tmp_path)
     audit = Audit(store)

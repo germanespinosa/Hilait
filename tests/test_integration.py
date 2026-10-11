@@ -78,7 +78,7 @@ async def test_ssh_host_trust_terminal_sftp_and_agent_scope(tmp_path, fixture_se
         runtime.agents.change(pending,"Approved","Test resume")
         await runtime.agents.release(agent,pending.id,close_connection=True)
         assert pending.session_id not in runtime.sessions.sessions
-        assert token not in (tmp_path/"data"/"activity.audit").read_text()
+        assert all(token not in path.read_text() for path in runtime.audit.path.rglob("*.audit"))
     finally:
         for session_id in list(runtime.sessions.sessions):
             await runtime.sessions.close(session_id)

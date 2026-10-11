@@ -123,6 +123,7 @@ def test_first_otp_setup_migrates_legacy_connections(tmp_path):
     store = app.state.runtime.store
     legacy = [{"id": "old", "name": "Existing machine", "host": "existing.example", "username": "ada"}]
     (tmp_path / "connections.json").write_text(json.dumps(legacy))
+    (tmp_path / "connections.json").chmod(0o600)
     assert store.profiles() == []
     setup = app.state.runtime.auth.begin_setup()
     app.state.runtime.auth.confirm_setup(totp(setup["secret"], time.time()))

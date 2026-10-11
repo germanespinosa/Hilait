@@ -54,6 +54,7 @@ def test_legacy_audit_migrates_without_changing_chain(tmp_path):
     line2 = base64.b64encode(store.cipher.encrypt(json.dumps(second).encode()))
     legacy = tmp_path / "activity.audit"
     legacy.write_bytes(line1 + b"\n" + line2 + b"\n")
+    legacy.chmod(0o600)
     audit = Audit(store)
     assert [r["kind"] for r in audit.records()] == ["access_requested", "terminal_output"]
     assert audit.records()[1]["_hash"] == hashlib.sha256(line2).hexdigest()
@@ -71,6 +72,7 @@ def test_failed_legacy_migration_keeps_original_log(tmp_path, monkeypatch):
     legacy = tmp_path / "activity.audit"
     original = base64.b64encode(store.cipher.encrypt(json.dumps(record).encode())) + b"\n"
     legacy.write_bytes(original)
+    legacy.chmod(0o600)
     put_line = Audit._put_line
     def fail_after_write(self, sequence, line, generation=None):
         put_line(self, sequence, line, generation)

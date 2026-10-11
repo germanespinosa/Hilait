@@ -192,8 +192,12 @@ class AgentRuntime:
         self._notify({"type": "authorizations"})
         return item
 
-    def extend_authorization(self, authorization_id: str, hours: float) -> dict:
-        if not 0 < hours <= 8760:
+    def extend_authorization(self, authorization_id: str, hours: float | None = None,
+                             *, permanent: bool = False, elevated_confirmed: bool = False) -> dict:
+        if permanent:
+            if hours is not None:
+                raise ValueError("Choose either a duration or permanent authorization.")
+        elif hours is None or not 0 < hours <= 8760:
             raise ValueError("Choose a period up to 365 days.")
         items = self.authorizations()
         item = next((a for a in items if a["id"] == authorization_id and not a["revoked"]), None)
@@ -201,8 +205,14 @@ class AgentRuntime:
             raise KeyError("Active or expired authorization not found.")
         if item.get("permanent"):
             raise ValueError("Permanent authorization does not expire.")
-        start = max(datetime.now(timezone.utc), datetime.fromisoformat(item["expires_utc"]))
-        item["expires_utc"] = (start + timedelta(hours=hours)).isoformat()
+        if permanent and item.get("privilege") == "elevated" and not elevated_confirmed:
+            raise ValueError("Explicitly confirm permanent elevated SSH access.")
+        if permanent:
+            item["permanent"] = True
+            item["expires_utc"] = None
+        else:
+            start = max(datetime.now(timezone.utc), datetime.fromisoformat(item["expires_utc"]))
+            item["expires_utc"] = (start + timedelta(hours=hours)).isoformat()
         self.audit.write("automatic_approval_extended", {"agentId": item["agent_id"], "profile": item["profile_id"]}, item)
         self.store.write("authorizations.json", items)
         self._notify({"type": "authorizations"})

@@ -35,6 +35,33 @@ def test_authorizations_state_only_exposes_current_access(tmp_path, activate_otp
 
 
 @pytest.mark.asyncio
+async def test_making_elevated_authorization_permanent_requires_confirmation(tmp_path, activate_otp):
+    app = create_app(tmp_path)
+    runtime = app.state.runtime
+    headers = {"Authorization": "Bearer " + activate_otp(runtime)}
+    agent, _ = runtime.store.create_agent("Elevated extension agent")
+    profile = {"id": "elevated-host", "name": "Elevated host", "host": "localhost", "port": 22,
+               "username": "viewer", "platform": "unix", "access_mode": "tiered",
+               "elevated_username": "operator", "allowed_agent_ids": [agent["id"]],
+               "elevated_allowed_agent_ids": [agent["id"]]}
+    runtime.store.save_profiles([profile])
+    authorization = runtime.agents.create_authorization(agent["id"], profile["id"], 1, "None",
+                                                         privilege="elevated")
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
+        endpoint = f"/api/authorizations/{authorization['id']}/extend"
+        denied = await client.post(endpoint, headers=headers, json={"permanent": True})
+        assert denied.status_code == 400
+        assert runtime.agents.active_authorization(agent["id"], profile["id"], "elevated")["permanent"] is False
+
+        approved = await client.post(endpoint, headers=headers,
+                                     json={"permanent": True, "elevated_confirmed": True})
+        assert approved.status_code == 200, approved.text
+        assert approved.json()["permanent"] is True
+        assert approved.json()["expires_utc"] is None
+
+
+@pytest.mark.asyncio
 async def test_authentication_methods_are_separate_and_switching_clears_old_secret(tmp_path, activate_otp, monkeypatch):
     app = create_app(tmp_path)
     runtime = app.state.runtime

@@ -134,6 +134,37 @@ def test_provider_change_does_not_reuse_saved_api_key(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_extend_authorization_can_become_permanent(tmp_path, activate_otp):
+    app = create_app(tmp_path)
+    runtime = app.state.runtime
+    headers = {"Authorization": "Bearer " + activate_otp(runtime)}
+    agent, _ = runtime.store.create_agent("Extension fixture")
+    profile = {"id": "extension-machine", "name": "Extension machine", "host": "localhost", "port": 22,
+               "username": "fixture", "platform": "unix", "shell": "default", "allowed_agent_ids": None}
+    runtime.store.save_profiles([profile])
+    authorization = runtime.agents.create_authorization(agent["id"], profile["id"], 1, "Remote")
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
+        endpoint = f"/api/authorizations/{authorization['id']}/extend"
+        invalid = await client.post(endpoint, headers=headers, json={"hours": 1, "permanent": True})
+        assert invalid.status_code == 400
+        assert not runtime.agents.authorizations()[0]["permanent"]
+
+        extended = await client.post(endpoint, headers=headers, json={"hours": 1})
+        assert extended.status_code == 200, extended.text
+        assert extended.json()["expires_utc"] > authorization["expires_utc"]
+
+        permanent = await client.post(endpoint, headers=headers, json={"permanent": True})
+        assert permanent.status_code == 200, permanent.text
+        assert permanent.json()["permanent"] is True
+        assert permanent.json()["expires_utc"] is None
+        assert permanent.json()["file_access"] == "Remote"
+        assert runtime.agents.active_authorization(agent["id"], profile["id"])["id"] == authorization["id"]
+        assert runtime.store.read("authorizations.json", [])[0]["permanent"] is True
+        assert (await client.post(endpoint, headers=headers, json={"hours": 1})).status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_permanent_authorization_and_low_score_revocation(tmp_path, monkeypatch, activate_otp):
     app = create_app(tmp_path)
     runtime = app.state.runtime

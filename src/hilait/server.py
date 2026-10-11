@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import re
 import shlex
 import uuid
 from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from . import __version__
 from .agents import AgentRuntime, ENDED, SCOPES
 from .admin_auth import AdminAuth, RateLimitError
 from .enrollment import AgentEnrollment
@@ -25,6 +28,21 @@ from .sessions import HostKeyApprovalNeeded, SessionManager
 from .storage import Audit, Store
 
 STATIC = Path(__file__).parent / "static"
+
+
+def build_id() -> str:
+    """Use pip's recorded Git revision when this version came from a VCS install."""
+    try:
+        installed = distribution("hilait")
+        if installed.version != __version__:
+            return "source"
+        origin = json.loads(installed.read_text("direct_url.json") or "{}")
+        revision = origin.get("vcs_info", {}).get("commit_id", "")
+        if isinstance(revision, str) and re.fullmatch(r"[0-9a-fA-F]{40}", revision):
+            return revision[:8].lower()
+        return "package"
+    except (PackageNotFoundError, OSError, ValueError, TypeError, AttributeError):
+        return "source"
 
 
 class Runtime:
@@ -84,8 +102,9 @@ def create_app(root: Path | None = None) -> FastAPI:
         for session_id in list(runtime.sessions.sessions):
             await runtime.sessions.close(session_id, "Hilait stopped")
 
-    app = FastAPI(title="Hilait", version="0.1.28", lifespan=lifespan)
+    app = FastAPI(title="Hilait", version=__version__, lifespan=lifespan)
     app.state.runtime = runtime
+    app.state.build = build_id()
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     review_runs: dict[str, asyncio.Lock] = {}
 
@@ -138,12 +157,12 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @app.get("/")
     async def index():
-        html = (STATIC / "index.html").read_text(encoding="utf-8").replace("{{VERSION}}", app.version)
+        html = (STATIC / "index.html").read_text(encoding="utf-8").replace("{{VERSION}}", app.version).replace("{{BUILD}}", app.state.build)
         return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     @app.get("/approve/{grant_id}")
     async def approval_page(grant_id: uuid.UUID):
-        html = (STATIC / "approve.html").read_text(encoding="utf-8").replace("{{VERSION}}", app.version)
+        html = (STATIC / "approve.html").read_text(encoding="utf-8").replace("{{VERSION}}", app.version).replace("{{BUILD}}", app.state.build)
         return HTMLResponse(html, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
 
     @app.get("/health")

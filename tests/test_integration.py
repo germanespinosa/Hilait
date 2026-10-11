@@ -93,6 +93,9 @@ async def test_api_token_and_machine_authorization(tmp_path, activate_otp):
         assert home.status_code == 200
         assert home.headers["cache-control"] == "no-store"
         assert f"/static/vendor/xterm.js?v={app.version}" in home.text
+        assert f"Hilait v{app.version} · build {app.state.build}" in home.text
+        approval = await client.get("/approve/00000000-0000-0000-0000-000000000000")
+        assert f"Hilait v{app.version} · build {app.state.build}" in approval.text
         assert (await client.get("/static/fonts/jetbrains-mono-latin-400-normal.woff2")).status_code == 200
         assert (await client.get("/api/state")).status_code == 401
         headers = {"Authorization":"Bearer "+runtime.store.admin_token}

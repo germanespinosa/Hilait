@@ -34,6 +34,7 @@ input, select { display: block; width: 100%; min-height: 44px; padding: 10px; ma
 .host-key { margin-top: 22px; border-top: 1px solid var(--line); }
 .host-key code { display: block; padding: 12px; background: var(--field); border: 1px solid var(--line); border-radius: 8px; overflow-wrap: anywhere; }
 footer { margin: 23px 0; text-align: center; font-size: 13px; }
+#build-info { position: fixed; right: 12px; bottom: 7px; z-index: 40; padding: 1px 5px; color: var(--muted); background: var(--surface); border-radius: 4px; font: 11px/16px ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; pointer-events: none; }
 a { color: var(--accent); }
 #login-form button { width: 100%; margin-top: 8px; }
 @media (max-width: 480px) {

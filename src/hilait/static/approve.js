@@ -91,7 +91,8 @@
     const buttons = form.querySelectorAll('button');
     buttons.forEach(button => button.disabled = true);
     const payload = action === 'approve' ? {
-      ...(form.elements.duration_hours.value ? {duration_hours:Number(form.elements.duration_hours.value)} : {}),
+      ...(form.elements.duration_hours.value === 'permanent' ? {permanent:true} :
+         form.elements.duration_hours.value ? {duration_hours:Number(form.elements.duration_hours.value)} : {}),
       ...(form.elements.local_folder.value ? {local_folder:form.elements.local_folder.value} : {}),
       ...(form.elements.secret.value ? {secret:form.elements.secret.value} : {})
     } : {};

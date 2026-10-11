@@ -134,6 +134,56 @@ def test_provider_change_does_not_reuse_saved_api_key(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_permanent_authorization_and_low_score_revocation(tmp_path, monkeypatch, activate_otp):
+    app = create_app(tmp_path)
+    runtime = app.state.runtime
+    admin_session = activate_otp(runtime)
+    agent, _ = runtime.store.create_agent("Review fixture")
+    profile = {"id": "review-machine", "name": "Review machine", "host": "localhost", "port": 22,
+               "username": "fixture", "platform": "unix", "shell": "default", "allowed_agent_ids": None}
+    runtime.store.save_profiles([profile])
+    grant = await runtime.agents.request(agent, profile["id"],
+                                         "Inspect the fixture machine and report its state without changing any files or services.")
+    assert grant.state == "Pending"
+    authorization = runtime.agents.create_authorization(agent["id"], profile["id"], None, "Remote", permanent=True)
+    assert authorization["expires_utc"] is None
+    assert runtime.agents.active_authorization(agent["id"], profile["id"])["id"] == authorization["id"]
+    with pytest.raises(ValueError, match="Permanent"):
+        runtime.agents.extend_authorization(authorization["id"], 1)
+    runtime.reviewer.save_settings({"revoke_thresholds": {"safety": 3, "purpose_alignment": 2, "correctness": None}})
+    with pytest.raises(ValueError, match="threshold"):
+        runtime.reviewer.save_settings({"revoke_thresholds": {"safety": 11}})
+    runtime.agents.change(grant, "Approved", "Test approval")
+    grant.session_id = "review-session"
+    runtime.sessions.sessions[grant.session_id] = object()
+    closed = []
+
+    async def close_session(session_id, reason):
+        closed.append((session_id, reason))
+        runtime.sessions.sessions.pop(session_id)
+
+    monkeypatch.setattr(runtime.sessions, "close", close_session)
+
+    async def low_review(_grant_id, _progress):
+        return {"safety": 2, "purpose_alignment": 8, "correctness": 8, "reviewed_utc": "2026-10-11T00:00:00+00:00"}
+
+    monkeypatch.setattr(runtime.reviewer, "review", low_review)
+    headers = {"Authorization": "Bearer " + admin_session}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.post(f"/api/review/{grant.id}", headers=headers)
+        assert response.status_code == 200, response.text
+        assert grant.state == "Revoked"
+        assert closed[0][0] == "review-session"
+        assert runtime.agents.active_authorization(agent["id"], profile["id"]) is None
+        with pytest.raises(PermissionError):
+            runtime.agents.owned(agent, grant.id, active=True)
+        assert any(record["kind"] == "review_access_revoked" for record in runtime.audit.session(grant.id))
+        renewed = runtime.agents.create_authorization(agent["id"], profile["id"], None, "Remote", permanent=True)
+        await client.post(f"/api/review/{grant.id}", headers=headers)
+        assert runtime.agents.active_authorization(agent["id"], profile["id"])["id"] == renewed["id"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("provider,endpoint,target,reply", [
     ("local", "http://localhost:11434/api", "/api/chat", {"message": {"content": "ANSWER"}}),
     ("openai", "https://api.openai.com/v1", "/v1/chat/completions", {"choices": [{"delta": {"content": "ANSWER"}}]}),

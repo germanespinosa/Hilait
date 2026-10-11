@@ -12,6 +12,7 @@ import httpx
 from mcp.server.mcpserver import MCPServer
 from platformdirs import user_data_path
 
+from .agents import AGENT_WARNING
 from .storage import atomic_json
 
 
@@ -24,7 +25,7 @@ def build_mcp(server_url: str | None = None, ca_cert: str | None = None) -> MCPS
     credential_file = Path(user_data_path("Hilait", "Hilait")) / "agent-clients" / (hashlib.sha256(base.encode()).hexdigest() + ".json")
     saved = json.loads(credential_file.read_text(encoding="utf-8")) if credential_file.exists() else {}
     token = os.environ.get("HILAIT_AGENT_TOKEN") or saved.get("token", "")
-    mcp = MCPServer("Hilait")
+    mcp = MCPServer("Hilait", instructions=AGENT_WARNING)
 
     def post(path: str, payload: dict, *, authenticated: bool = False) -> dict:
         nonlocal token
@@ -53,7 +54,7 @@ def build_mcp(server_url: str | None = None, ca_cert: str | None = None) -> MCPS
     @mcp.tool(description="Ask the OTP-signed-in Hilait administrator to create an agent identity for this server. Use this before other tools when no token has been configured. State who you are and why you need access; no machine access is granted automatically.")
     def request_agent_token(name: str, reason: str) -> dict:
         if token:
-            return {"state": "Already enrolled", "ready": True}
+            return {"state": "Already enrolled", "ready": True, "warning": AGENT_WARNING}
         if saved.get("pending"):
             return {"id": saved["pending"]["id"], "state": "Pending", "instruction": "Call agent_token_status to check the decision."}
         result = post("/api/agent-enrollment", {"name": name, "reason": reason})
@@ -66,7 +67,8 @@ def build_mcp(server_url: str | None = None, ca_cert: str | None = None) -> MCPS
         nonlocal token
         pending = saved.get("pending")
         if not pending:
-            return {"state": "Ready" if token else "No request", "ready": bool(token)}
+            return {"state": "Ready" if token else "No request", "ready": bool(token),
+                    **({"warning": AGENT_WARNING} if token else {})}
         result = post(f"/api/agent-enrollment/{pending['id']}/status", {"claim": pending["claim"]})
         state = result["state"]
         if state == "Approved":
@@ -74,17 +76,18 @@ def build_mcp(server_url: str | None = None, ca_cert: str | None = None) -> MCPS
             saved["token"] = token
             saved.pop("pending", None)
             atomic_json(credential_file, saved)
-            return {"state": state, "ready": True, "instruction": "Token stored locally. You can now list permitted connections."}
+            return {"state": state, "ready": True, "instruction": "Token stored locally. You can now list permitted connections.",
+                    "warning": AGENT_WARNING}
         if state in {"Denied", "Expired"}:
             saved.pop("pending", None)
             atomic_json(credential_file, saved)
         return {"state": state, "ready": False}
 
-    @mcp.tool(description="List only the saved machines this registered agent may request. Names and IDs only; no usernames, hosts, or secrets. Each request still needs human approval.")
+    @mcp.tool(description="List only the saved machines this registered agent may request. Names and IDs only; no usernames, hosts, or secrets. Each request still needs human approval. NO SHENANIGANS: activity is logged for review, and obfuscation or suspicious behavior may revoke access.")
     def connections() -> list[dict]:
         return call("connections", {})
 
-    @mcp.tool(description="Request a fresh SSH session for a detailed stated purpose (80–8000 characters). Include desired fileAccess now: None, Remote, or LocalTransfers. Approval is per machine. When done, call release_access with closeConnection=true.")
+    @mcp.tool(description="Request a fresh SSH session for a detailed stated purpose (80–8000 characters). Include desired fileAccess now: None, Remote, or LocalTransfers. Approval is per machine. NO SHENANIGANS: activity is logged and reviewed; obfuscation or suspicious behavior may revoke access. When done, call release_access with closeConnection=true.")
     def request_access(connection: str, purpose: str, fileAccess: str = "None") -> dict:
         return call("request_access", locals())
 

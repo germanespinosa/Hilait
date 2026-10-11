@@ -115,7 +115,10 @@ async def test_api_token_and_machine_authorization(tmp_path, activate_otp):
         purpose = "Check the saved machine's state and report what is available, without changing files, services, settings, or other resources."
         request = await client.post("/agent/request_access", headers=agent_headers, json={"connection":profile["id"],"purpose":purpose,"fileAccess":"Remote"})
         assert request.status_code == 200, request.text
+        assert "NO SHENANIGANS" in request.json()["warning"]
         access = request.json()["access"]
+        status = await client.post("/agent/access_status", headers=agent_headers, json={"access":access})
+        assert "Obfuscated" in status.json()["warning"]
         denied = await client.post("/agent/files", headers=agent_headers, json={"access":access,"action":"list","path":"/"})
         assert denied.status_code == 403
         saved = await client.post("/api/authorizations", headers=headers, json={"agent_id":agent["agent"]["id"],"profile_id":profile["id"],"hours":1,"file_access":"Remote"})

@@ -15,6 +15,10 @@ from .storage import Audit, Store, utc_now
 
 SCOPES = {"None": 0, "Remote": 1, "LocalTransfers": 2}
 ENDED = {"Denied", "Expired", "Revoked", "Closed"}
+AGENT_WARNING = ("NO SHENANIGANS. Hilait records agent activity for review. Obfuscated or concealed "
+                 "activity will be flagged, and suspicious activity or low review scores can revoke your "
+                 "access immediately. Your activity will be reviewed against your approved purpose. "
+                 "Use clear, honest commands and stay within that purpose.")
 
 
 @dataclass
@@ -88,13 +92,14 @@ class AgentRuntime:
             return None
         now = datetime.now(timezone.utc)
         for item in self.authorizations():
-            if item["agent_id"] == agent_id and item["profile_id"] == profile_id and not item["revoked"] and datetime.fromisoformat(item["expires_utc"]) > now:
+            if (item["agent_id"] == agent_id and item["profile_id"] == profile_id and not item["revoked"]
+                    and (item.get("permanent") or item.get("expires_utc") and datetime.fromisoformat(item["expires_utc"]) > now)):
                 return item
         return None
 
-    def create_authorization(self, agent_id: str, profile_id: str, hours: float, scope: str,
-                             local_folder: str | None = None) -> dict:
-        if not 0 < hours <= 8760 or scope not in SCOPES:
+    def create_authorization(self, agent_id: str, profile_id: str, hours: float | None, scope: str,
+                             local_folder: str | None = None, *, permanent: bool = False) -> dict:
+        if (not permanent and (hours is None or not 0 < hours <= 8760)) or scope not in SCOPES:
             raise ValueError("Choose a period up to 365 days and a valid file scope.")
         if scope == "LocalTransfers" and not local_folder:
             raise ValueError("Local transfers require a chosen folder.")
@@ -105,7 +110,8 @@ class AgentRuntime:
             raise KeyError("Active agent not found.")
         profile = self.permitted_profile(agent, profile_id)
         item = {"id": str(uuid.uuid4()), "agent_id": agent_id, "profile_id": profile_id,
-                "connection": profile["name"], "expires_utc": (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat(),
+                "connection": profile["name"], "expires_utc": None if permanent else (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat(),
+                "permanent": permanent,
                 "file_access": scope, "local_folder": local_folder, "revoked": False}
         items = self.authorizations()
         items.append(item)
@@ -121,6 +127,8 @@ class AgentRuntime:
         item = next((a for a in items if a["id"] == authorization_id and not a["revoked"]), None)
         if not item:
             raise KeyError("Active or expired authorization not found.")
+        if item.get("permanent"):
+            raise ValueError("Permanent authorization does not expire.")
         start = max(datetime.now(timezone.utc), datetime.fromisoformat(item["expires_utc"]))
         item["expires_utc"] = (start + timedelta(hours=hours)).isoformat()
         self.audit.write("automatic_approval_extended", {"agentId": item["agent_id"], "profile": item["profile_id"]}, item)
@@ -128,17 +136,19 @@ class AgentRuntime:
         self._notify({"type": "authorizations"})
         return item
 
-    def revoke_authorization(self, authorization_id: str) -> None:
+    def revoke_authorization(self, authorization_id: str, reason: str = "Agent/machine authorization revoked") -> None:
         items = self.authorizations()
         item = next((a for a in items if a["id"] == authorization_id), None)
         if not item:
             raise KeyError("Authorization not found.")
+        if item["revoked"]:
+            return
         item["revoked"] = True
-        self.audit.write("automatic_approval_ended", {"agentId": item["agent_id"], "profile": item["profile_id"]}, {"authorization": authorization_id})
+        self.audit.write("automatic_approval_ended", {"agentId": item["agent_id"], "profile": item["profile_id"]}, {"authorization": authorization_id, "reason": reason})
         self.store.write("authorizations.json", items)
         for grant in list(self.grants.values()):
             if grant.agent_id == item["agent_id"] and grant.profile_id == item["profile_id"] and grant.state not in ENDED:
-                self.change(grant, "Revoked", "Agent/machine authorization revoked")
+                self.change(grant, "Revoked", reason)
         self._notify({"type": "authorizations"})
 
     async def request(self, agent: dict, profile_id: str, purpose: str, scope: str = "None") -> Grant:
@@ -188,12 +198,15 @@ class AgentRuntime:
         return grant
 
     async def approve(self, grant_id: str, *, local_folder: str | None = None,
-                      duration_hours: float | None = None, secret: str | None = None) -> Grant:
+                      duration_hours: float | None = None, secret: str | None = None,
+                      permanent: bool = False) -> Grant:
         grant = self.pending(grant_id)
         if not grant or grant.state != "Pending":
             raise ValueError("Pending request not found.")
         if grant_id in self.approving:
             raise ValueError("This request is already being approved.")
+        if permanent and duration_hours is not None:
+            raise ValueError("Choose either a duration or permanent authorization.")
         if duration_hours is not None and not 0 < duration_hours <= 8760:
             raise ValueError("Choose an authorization period up to 365 days.")
         if grant.file_access == "LocalTransfers" and not local_folder:
@@ -207,13 +220,14 @@ class AgentRuntime:
             self.approving.discard(grant_id)
         grant.session_id, grant.local_folder = session.id, local_folder
         self.change(grant, "Approved", "Connection request approved by user")
-        if duration_hours:
+        if duration_hours or permanent:
             existing = self.active_authorization(grant.agent_id, grant.profile_id)
             if existing:
                 items = self.authorizations()
                 for item in items:
                     if item["id"] == existing["id"]:
-                        item["expires_utc"] = (datetime.now(timezone.utc) + timedelta(hours=duration_hours)).isoformat()
+                        item["expires_utc"] = None if permanent else (datetime.now(timezone.utc) + timedelta(hours=duration_hours)).isoformat()
+                        item["permanent"] = permanent
                         item["file_access"] = grant.file_access
                         item["local_folder"] = local_folder
                         self.audit.write("automatic_approval_updated", grant.context(), item)
@@ -221,7 +235,7 @@ class AgentRuntime:
                 self.store.write("authorizations.json", items)
             else:
                 self.create_authorization(grant.agent_id, grant.profile_id, duration_hours,
-                                          grant.file_access, local_folder)
+                                          grant.file_access, local_folder, permanent=permanent)
         return grant
 
     def change(self, grant: Grant, state: str, reason: str) -> None:

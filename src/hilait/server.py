@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
-from .agents import AgentRuntime, ENDED, SCOPES
+from .agents import AGENT_WARNING, AgentRuntime, ENDED, SCOPES
 from .admin_auth import AdminAuth, RateLimitError
 from .enrollment import AgentEnrollment
 from .files import FileService
@@ -113,6 +113,39 @@ def create_app(root: Path | None = None) -> FastAPI:
             previous = runtime.reviewer.results().get(grant_id)
             result = await runtime.reviewer.review(grant_id, lambda message: runtime.agents._notify(
                 {"type": "review_progress", "grant": grant_id, "message": message}))
+            thresholds = runtime.reviewer.settings()["revoke_thresholds"]
+            triggered = {axis: {"score": result.get(axis), "threshold": limit}
+                         for axis, limit in thresholds.items()
+                         if limit is not None and type(result.get(axis)) is int and result[axis] <= limit}
+            handled = runtime.store.read("review-revocations.json", {})
+            if triggered and handled.get(grant_id) != result["reviewed_utc"]:
+                grant = runtime.agents.grants.get(grant_id)
+                records = runtime.audit.session(grant_id) if not grant else []
+                context = next((record.get("context", {}) for record in records
+                                if record.get("context", {}).get("agentId") and record.get("context", {}).get("profile")), {})
+                agent_id = grant.agent_id if grant else context.get("agentId")
+                profile_id = grant.profile_id if grant else context.get("profile")
+                changed = False
+                reason = "Review score at or below configured revocation threshold"
+                if agent_id and profile_id:
+                    for authorization in runtime.agents.authorizations():
+                        if (authorization["agent_id"] == agent_id and authorization["profile_id"] == profile_id
+                                and not authorization["revoked"]):
+                            runtime.agents.revoke_authorization(authorization["id"], reason)
+                            changed = True
+                if grant and grant.state not in {"Denied", "Expired", "Revoked", "Closed"}:
+                    runtime.agents.change(grant, "Revoked", reason)
+                    changed = True
+                if changed:
+                    runtime.audit.write("review_access_revoked", {"grant": grant_id, "agentId": agent_id,
+                                                                   "profile": profile_id}, {"triggered": triggered})
+                    for affected in list(runtime.agents.grants.values()):
+                        if (affected.agent_id == agent_id and affected.profile_id == profile_id
+                                and affected.state == "Revoked" and affected.session_id
+                                and affected.session_id in runtime.sessions.sessions):
+                            await runtime.sessions.close(affected.session_id, reason)
+                handled[grant_id] = result["reviewed_utc"]
+                runtime.store.write("review-revocations.json", handled)
             if not previous or previous.get("reviewed_utc") != result["reviewed_utc"]:
                 await runtime.ntfy.notify_review(grant_id, result, runtime.reviewer.settings()["alert_thresholds"])
             return result
@@ -467,8 +500,9 @@ def create_app(root: Path | None = None) -> FastAPI:
     @app.post("/api/authorizations", dependencies=[Depends(admin)])
     async def create_authorization(payload: dict):
         return runtime.agents.create_authorization(payload["agent_id"], payload["profile_id"],
-                                                   float(payload["hours"]), payload.get("file_access", "None"),
-                                                   payload.get("local_folder"))
+                                                   None if payload.get("permanent") is True else float(payload["hours"]),
+                                                   payload.get("file_access", "None"), payload.get("local_folder"),
+                                                   permanent=payload.get("permanent") is True)
 
     @app.post("/api/authorizations/{authorization_id}/extend", dependencies=[Depends(admin)])
     async def extend_authorization(authorization_id: str, payload: dict):
@@ -489,7 +523,8 @@ def create_app(root: Path | None = None) -> FastAPI:
         grant = runtime.agents.pending(grant_id)
         if action == "approve":
             return (await runtime.agents.approve(grant_id, local_folder=payload.get("local_folder"),
-                        duration_hours=payload.get("duration_hours"), secret=payload.get("secret"))).public()
+                        duration_hours=payload.get("duration_hours"), secret=payload.get("secret"),
+                        permanent=payload.get("permanent") is True)).public()
         if action == "reject":
             if grant.state != "Pending" or grant.id in runtime.agents.approving:
                 raise ValueError("Pending request not found.")
@@ -697,9 +732,9 @@ async def run_agent_tool(runtime: Runtime, identity: dict, tool: str, payload: d
         return agents.visible_connections(identity)
     if tool == "request_access":
         grant = await agents.request(identity, payload["connection"], payload["purpose"], payload.get("fileAccess", "None"))
-        return grant.public()
+        return {**grant.public(), "warning": AGENT_WARNING}
     if tool == "access_status":
-        return agents.owned(identity, payload["access"]).public()
+        return {**agents.owned(identity, payload["access"]).public(), "warning": AGENT_WARNING}
     if tool == "release_access":
         return await agents.release(identity, payload["access"], bool(payload.get("closeConnection", False)))
     if tool in {"terminal_write", "terminal_read", "terminal_screen", "files", "copy", "request_sudo"}:

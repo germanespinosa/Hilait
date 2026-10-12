@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import re
 import shlex
 import uuid
@@ -29,6 +30,7 @@ from .sessions import HostKeyApprovalNeeded, SessionManager
 from .storage import Audit, Store
 
 STATIC = Path(__file__).parent / "static"
+LOG = logging.getLogger(__name__)
 
 
 def build_id() -> str:
@@ -61,6 +63,31 @@ class Runtime:
         self.sudo_requests: dict[str, tuple[dict, asyncio.Future]] = {}
         self.sudo_consents: set[str] = set()
 
+    def prune_activity(self, reviewing: set[str] | None = None) -> dict:
+        active = {grant.id for grant in self.agents.grants.values() if grant.state not in ENDED}
+        active.update(reviewing or set())
+        expired = self.audit.prune(active)
+        if self.audit.retention_days is not None:
+            remaining = set(self.audit.grant_ids())
+            for name, secure in (("reviews.enc", True), ("review-alerts.enc", True),
+                                 ("review-revocations.json", False)):
+                records = self.store.read_secure(name, {}) if secure else self.store.read(name, {})
+                stale = (set(records) - remaining) | expired
+                if not stale.intersection(records):
+                    continue
+                for grant_id in stale:
+                    records.pop(grant_id, None)
+                if secure:
+                    self.store.write_secure(name, records)
+                else:
+                    self.store.write(name, records)
+        return {"sessions_deleted": len(expired)}
+
+    def save_activity_settings(self, directory: str, retention_days: int | None,
+                               reviewing: set[str] | None = None) -> dict:
+        settings = self.audit.update_settings(directory, retention_days)
+        return {**settings, **self.prune_activity(reviewing)}
+
     def state(self) -> dict:
         return {
             "profiles": [self.store.public_profile(profile) for profile in self.store.profiles()],
@@ -83,6 +110,8 @@ class Runtime:
 
 def create_app(root: Path | None = None) -> FastAPI:
     runtime = Runtime(root)
+    activity_lock = asyncio.Lock()
+    reviewing: dict[str, int] = {}
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -98,9 +127,19 @@ def create_app(root: Path | None = None) -> FastAPI:
                     except Exception as exc:
                         runtime.reviewer.progress[grant_id] = "Review failed: " + str(exc)
         reviews = asyncio.create_task(automatic_reviews())
+        async def activity_retention():
+            while True:
+                try:
+                    async with activity_lock:
+                        await asyncio.to_thread(runtime.prune_activity, set(reviewing))
+                except Exception:
+                    LOG.exception("Activity retention failed")
+                await asyncio.sleep(3600)
+        retention = asyncio.create_task(activity_retention())
         yield
         idle.cancel()
         reviews.cancel()
+        retention.cancel()
         for session_id in list(runtime.sessions.sessions):
             await runtime.sessions.close(session_id, "Hilait stopped")
 
@@ -111,6 +150,17 @@ def create_app(root: Path | None = None) -> FastAPI:
     review_runs: dict[str, asyncio.Lock] = {}
 
     async def run_review(grant_id: str) -> dict:
+        async with activity_lock:
+            reviewing[grant_id] = reviewing.get(grant_id, 0) + 1
+        try:
+            return await _run_review(grant_id)
+        finally:
+            async with activity_lock:
+                reviewing[grant_id] -= 1
+                if reviewing[grant_id] == 0:
+                    del reviewing[grant_id]
+
+    async def _run_review(grant_id: str) -> dict:
         async with review_runs.setdefault(grant_id, asyncio.Lock()):
             previous = runtime.reviewer.results().get(grant_id)
             result = await runtime.reviewer.review(grant_id, lambda message: runtime.agents._notify(
@@ -679,6 +729,16 @@ def create_app(root: Path | None = None) -> FastAPI:
             grant = context["grant"]
             contexts[grant] = {**context, "review": results.get(grant), "needsReview": grant in pending}
         return sorted(contexts.values(), key=lambda item: item["lastUtc"], reverse=True)
+
+    @app.get("/api/activity/settings", dependencies=[Depends(admin)])
+    async def activity_settings():
+        return runtime.audit.settings()
+
+    @app.put("/api/activity/settings", dependencies=[Depends(admin)])
+    async def save_activity_settings(payload: dict):
+        async with activity_lock:
+            return await asyncio.to_thread(runtime.save_activity_settings,
+                                           payload.get("directory"), payload.get("retention_days"), set(reviewing))
 
     @app.get("/api/logs/{grant_id}", dependencies=[Depends(admin)])
     async def log_detail(grant_id: str):

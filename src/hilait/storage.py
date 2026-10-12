@@ -13,7 +13,7 @@ import stat
 import tempfile
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -299,7 +299,9 @@ class Audit:
     def __init__(self, store: Store) -> None:
         self.store = store
         self.legacy_path = store.root / "activity.audit"
-        self.path = store.root / "activity-records"
+        saved = store.read("activity-settings.json", {})
+        self.path = self._directory(saved.get("directory", str(store.root / "activity-records")))
+        self.retention_days = self._retention(saved.get("retention_days"))
         self.index_path = store.root / "activity-records.current"
         self.lock = threading.RLock()
         self.path.mkdir(mode=0o700, exist_ok=True)
@@ -327,6 +329,78 @@ class Audit:
             if self._legacy_matches(records):
                 self.legacy_path.unlink()
         self._clean_orphan_generations()
+
+    def _directory(self, value: str) -> Path:
+        if not isinstance(value, str) or not value.strip() or not Path(value).is_absolute():
+            raise ValueError("Use an absolute activity storage folder.")
+        if Path(value).is_symlink():
+            raise PermissionError("The activity storage folder cannot be a symlink.")
+        path = Path(value).resolve()
+        root = self.store.root.resolve()
+        if path == root or path in root.parents:
+            raise ValueError("Choose a dedicated activity folder, not the Hilait data directory or its parent.")
+        return path
+
+    @staticmethod
+    def _retention(value: int | None) -> int | None:
+        if value is not None and (type(value) is not int or not 1 <= value <= 3650):
+            raise ValueError("Keep activity forever or choose 1–3650 days.")
+        return value
+
+    def settings(self) -> dict:
+        return {"directory": str(self.path), "retention_days": self.retention_days}
+
+    def update_settings(self, directory: str, retention_days: int | None) -> dict:
+        target = self._directory(directory)
+        retention_days = self._retention(retention_days)
+        with self.lock:
+            old_directory_retained = None
+            if target != self.path:
+                old = self.path
+                if old in target.parents or target in old.parents:
+                    raise ValueError("Choose a separate activity folder outside the current one.")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if target.exists():
+                    _private_directory(target)
+                    if any(target.iterdir()):
+                        raise ValueError("The new activity folder must be empty.")
+                stage = target.with_name(f".{target.name}.hilait-{uuid.uuid4().hex}")
+                moved = False
+                try:
+                    shutil.copytree(old, stage)
+                    self.path = stage
+                    try:
+                        self._read_generation(self.generation)
+                    finally:
+                        self.path = old
+                    if target.exists():
+                        target.rmdir()
+                    os.replace(stage, target)
+                    moved = True
+                    self.store.write("activity-settings.json", {"directory": str(target),
+                                                                 "retention_days": retention_days})
+                except Exception:
+                    if stage.exists():
+                        shutil.rmtree(stage)
+                    if moved:
+                        shutil.rmtree(target)
+                    raise
+                self.path = target
+                self.retention_days = retention_days
+                try:
+                    _private_directory(old / self.generation)
+                    shutil.rmtree(old / self.generation)
+                    old.rmdir()
+                except OSError:
+                    old_directory_retained = str(old)
+            elif retention_days != self.retention_days:
+                self.store.write("activity-settings.json", {"directory": str(target),
+                                                             "retention_days": retention_days})
+                self.retention_days = retention_days
+            result = self.settings()
+            if old_directory_retained:
+                result["old_directory_retained"] = old_directory_retained
+            return result
 
     def _new_generation(self) -> str:
         generation = uuid.uuid4().hex
@@ -424,14 +498,19 @@ class Audit:
         self._hashes = [record["_hash"] for record in records]
         self._grants: dict[str, list[int]] = {}
         self._summaries: dict[str, dict] = {}
+        self._grant_last: dict[str, datetime] = {}
+        self._global_oldest: datetime | None = None
         for record in records:
             self._index_record(record)
 
     def _index_record(self, record: dict) -> None:
         context = record.get("context") or {}
         grant = context.get("grant")
+        timestamp = datetime.fromisoformat(record["utc"])
         if not grant:
+            self._global_oldest = min(self._global_oldest or timestamp, timestamp)
             return
+        self._grant_last[grant] = max(self._grant_last.get(grant, timestamp), timestamp)
         self._grants.setdefault(grant, []).append(record["sequence"])
         self._summaries[grant] = {
             "grant": grant, "agent": context.get("agent"), "agentId": context.get("agentId"),
@@ -489,25 +568,48 @@ class Audit:
     def delete_session(self, grant_id: str) -> None:
         with self.lock:
             kept = [record for record in self.records() if record.get("context", {}).get("grant") != grant_id]
-            previous = ""
-            generation = self._new_generation()
-            try:
-                for sequence, record in enumerate(kept, 1):
-                    record = {k: v for k, v in record.items() if k != "_hash"}
-                    record["sequence"] = sequence
-                    record["previous"] = previous
-                    line = base64.b64encode(self.store.cipher.encrypt(json.dumps(record, ensure_ascii=False).encode()))
-                    self._put_line(sequence, line, generation)
-                    previous = hashlib.sha256(line).hexdigest()
-                old_generation = self.generation
-                self._activate(generation)
-            except Exception:
-                shutil.rmtree(self.path / generation)
-                raise
-            self.sequence = len(kept)
-            self.previous = previous
-            self._index_records(self._read_generation(generation))
-            try:
-                self.write("session_log_deleted", {}, {"note": "A user deleted one ended session log."})
-            finally:
-                shutil.rmtree(self.path / old_generation)
+            self._replace_records(kept, "session_log_deleted", {"note": "A user deleted one ended session log."})
+
+    def _replace_records(self, kept: list[dict], kind: str, data: dict) -> None:
+        previous = ""
+        generation = self._new_generation()
+        try:
+            for sequence, record in enumerate(kept, 1):
+                record = {k: v for k, v in record.items() if k != "_hash"}
+                record["sequence"] = sequence
+                record["previous"] = previous
+                line = base64.b64encode(self.store.cipher.encrypt(json.dumps(record, ensure_ascii=False).encode()))
+                self._put_line(sequence, line, generation)
+                previous = hashlib.sha256(line).hexdigest()
+            old_generation = self.generation
+            self._activate(generation)
+        except Exception:
+            shutil.rmtree(self.path / generation)
+            raise
+        self.sequence = len(kept)
+        self.previous = previous
+        self._index_records(self._read_generation(generation))
+        try:
+            self.write(kind, {}, data)
+        finally:
+            shutil.rmtree(self.path / old_generation)
+
+    def prune(self, active_grants: set[str] | None = None, *, now: datetime | None = None) -> set[str]:
+        if self.retention_days is None:
+            return set()
+        cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=self.retention_days)
+        with self.lock:
+            expired = {grant for grant, timestamp in self._grant_last.items()
+                       if timestamp < cutoff and grant not in (active_grants or set())}
+            if not expired and (self._global_oldest is None or self._global_oldest >= cutoff):
+                return set()
+            records = self.records()
+            kept = [record for record in records
+                    if ((record.get("context") or {}).get("grant") not in expired
+                        and ((record.get("context") or {}).get("grant")
+                             or datetime.fromisoformat(record["utc"]) >= cutoff))]
+            if len(kept) != len(records):
+                self._replace_records(kept, "activity_retention_applied",
+                                      {"retention_days": self.retention_days,
+                                       "sessions_deleted": len(expired), "records_deleted": len(records) - len(kept)})
+            return expired

@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -99,6 +100,87 @@ def test_session_index_avoids_full_scan_and_tracks_new_records(tmp_path, monkeyp
     assert audit.grant_version("g1") != version
     assert [record["sequence"] for record in audit.session("g1")] == [1, 3]
     assert [record["sequence"] for record in audit.session("g2")] == [2]
+
+
+def test_activity_folder_move_preserves_chain_and_rejects_nonempty_target(tmp_path):
+    root = tmp_path / "data"
+    audit = Audit(Store(root))
+    audit.write("access_requested", {"grant": "g1"}, {"purpose": "Preserve this"})
+    audit.write("terminal_output", {"grant": "g1"}, {"base64": "YWJj"})
+    original = audit.path
+    occupied = tmp_path / "occupied"
+    occupied.mkdir()
+    (occupied / "unrelated.txt").write_text("keep")
+    with pytest.raises(ValueError, match="empty"):
+        audit.update_settings(str(occupied), 30)
+    with pytest.raises(ValueError, match="dedicated"):
+        audit.update_settings(str(root), 30)
+    assert (occupied / "unrelated.txt").read_text() == "keep"
+
+    destination = tmp_path / "other-disk" / "activity"
+    settings = audit.update_settings(str(destination), 30)
+    assert settings == {"directory": str(destination), "retention_days": 30}
+    assert not original.exists()
+    assert len(audit.session("g1")) == 2
+    reopened = Audit(Store(root))
+    assert reopened.path == destination
+    assert [record["kind"] for record in reopened.session("g1")] == ["access_requested", "terminal_output"]
+    reopened.write("session_closed", {"grant": "g1"}, {})
+    assert len(Audit(Store(root)).session("g1")) == 3
+
+
+def test_failed_activity_move_keeps_original_records(tmp_path, monkeypatch):
+    root = tmp_path / "data"
+    audit = Audit(Store(root))
+    audit.write("access_requested", {"grant": "g1"}, {})
+    original = audit.path
+    read_generation = audit._read_generation
+
+    def fail_verification(generation):
+        if audit.path != original:
+            raise ValueError("Copied activity failed verification")
+        return read_generation(generation)
+
+    monkeypatch.setattr(audit, "_read_generation", fail_verification)
+    with pytest.raises(ValueError, match="verification"):
+        audit.update_settings(str(tmp_path / "new-records"), 30)
+    assert audit.path == original
+    assert len(audit.session("g1")) == 1
+    assert Audit(Store(root)).path == original
+
+
+def test_activity_retention_keeps_complete_recent_and_active_sessions(tmp_path, monkeypatch):
+    audit = Audit(Store(tmp_path))
+    audit.update_settings(str(audit.path), 30)
+    now = datetime.now(timezone.utc)
+    old = (now - timedelta(days=40)).isoformat()
+    recent = (now - timedelta(days=2)).isoformat()
+    monkeypatch.setattr("hilait.storage.utc_now", lambda: old)
+    audit.write("access_requested", {"grant": "expired"}, {})
+    audit.write("access_requested", {"grant": "recent"}, {})
+    audit.write("access_requested", {"grant": "active"}, {})
+    audit.write("old_setting", {}, {})
+    monkeypatch.setattr("hilait.storage.utc_now", lambda: recent)
+    audit.write("session_closed", {"grant": "recent"}, {})
+    audit.write("new_setting", {}, {})
+    monkeypatch.setattr("hilait.storage.utc_now", lambda: now.isoformat())
+
+    assert audit.prune({"active"}, now=now) == {"expired"}
+    assert audit.session("expired") == []
+    assert len(audit.session("recent")) == 2
+    assert len(audit.session("active")) == 1
+    assert "old_setting" not in [record["kind"] for record in audit.records()]
+    assert [record["sequence"] for record in audit.records()] == list(range(1, audit.sequence + 1))
+    assert audit.prune({"active"}, now=now) == set()
+    assert [record["kind"] for record in Audit(Store(tmp_path)).session("recent")] == ["access_requested", "session_closed"]
+
+
+def test_activity_retention_skips_full_scan_when_nothing_is_due(tmp_path, monkeypatch):
+    audit = Audit(Store(tmp_path))
+    audit.update_settings(str(audit.path), 30)
+    audit.write("access_requested", {"grant": "recent"}, {})
+    monkeypatch.setattr(audit, "_read_generation", lambda _generation: pytest.fail("unexpected full audit scan"))
+    assert audit.prune() == set()
 
 
 def test_agent_tokens_are_distinct_and_concealed(tmp_path):

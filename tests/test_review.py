@@ -2,6 +2,7 @@
 
 import base64
 import json
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -27,6 +28,41 @@ def recorded_session(tmp_path):
                                          "result": {"base64": base64.b64encode(b"PRIVATE FILE").decode()}})
     audit.write("session_closed", context, {"reason": "Agent completed the task"})
     return store, audit
+
+
+@pytest.mark.asyncio
+async def test_activity_settings_api_moves_records_and_prunes_reviews(tmp_path, activate_otp, monkeypatch):
+    app = create_app(tmp_path / "data")
+    runtime = app.state.runtime
+    headers = {"Authorization": "Bearer " + activate_otp(runtime)}
+    old = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()
+    monkeypatch.setattr("hilait.storage.utc_now", lambda: old)
+    runtime.audit.write("access_requested", {"grant": "old-session"}, {})
+    runtime.store.write_secure("reviews.enc", {"old-session": {"summary": "Old review"}})
+    runtime.store.write_secure("review-alerts.enc", {"old-session": {"sent": True}})
+    destination = tmp_path / "archive" / "records"
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
+        assert (await client.get("/api/activity/settings")).status_code == 401
+        initial = await client.get("/api/activity/settings", headers=headers)
+        assert initial.status_code == 200
+        assert initial.json()["retention_days"] is None
+        assert (await client.put("/api/activity/settings", headers=headers,
+                                 json={"directory": str(destination), "retention_days": 0})).status_code == 400
+        assert runtime.audit.session("old-session")
+
+        changed = await client.put("/api/activity/settings", headers=headers,
+                                   json={"directory": str(destination), "retention_days": 30})
+        assert changed.status_code == 200, changed.text
+        assert changed.json()["sessions_deleted"] == 1
+        assert changed.json()["directory"] == str(destination)
+        assert runtime.audit.session("old-session") == []
+        assert runtime.store.read_secure("reviews.enc", {}) == {}
+        assert runtime.store.read_secure("review-alerts.enc", {}) == {}
+        assert (await client.get("/api/activity/settings", headers=headers)).json()["retention_days"] == 30
+        runtime.store.write_secure("reviews.enc", {"old-session": {"summary": "Orphan after interrupted cleanup"}})
+        assert runtime.prune_activity()["sessions_deleted"] == 0
+        assert runtime.store.read_secure("reviews.enc", {}) == {}
 
 
 def test_evidence_hash_reuses_unchanged_session_index(tmp_path, monkeypatch):

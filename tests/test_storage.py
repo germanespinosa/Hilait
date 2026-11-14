@@ -109,7 +109,7 @@ def test_activity_folder_move_preserves_chain_and_rejects_nonempty_target(tmp_pa
     audit.write("terminal_output", {"grant": "g1"}, {"base64": "YWJj"})
     original = audit.path
     occupied = tmp_path / "occupied"
-    occupied.mkdir()
+    occupied.mkdir(mode=0o700)
     (occupied / "unrelated.txt").write_text("keep")
     with pytest.raises(ValueError, match="empty"):
         audit.update_settings(str(occupied), 30)

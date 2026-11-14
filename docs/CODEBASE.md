@@ -456,13 +456,9 @@ hilait serve --open          # local run on http://127.0.0.1:8765
 * CI runs on every push (Ubuntu/Windows/macOS × 3.11/3.12).
 
 ### Known issues at time of writing
-* **CI on `main` is red** since `d008b57`:
-  `tests/test_storage.py::test_activity_folder_move_preserves_chain_and_rejects_nonempty_target`
-  fails on Linux/macOS. The test creates `occupied/` with the default umask
-  (0755), so `_private_directory` raises `PermissionError` ("must be … mode
-  0700") before the expected "must be empty" `ValueError`. Passes under
-  `umask 077` and on Windows. Fix either the test (create the dir with mode
-  0700) or the check order in `Audit.update_settings`.
+* Tests that create directories Hilait will validate must create them with
+  `mode=0o700`; otherwise the POSIX privacy check fires first on runners with
+  the usual 022 umask (this broke CI after `d008b57`, fixed in the next commit).
 * `docs/CREDENTIAL_SECURITY.md` says it describes 0.1.28; the content still
   applies but the version note is stale.
 

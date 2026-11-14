@@ -138,7 +138,7 @@ npm ci
 npm run build
 ```
 
-The test suite uses an isolated loopback SSH fixture and temporary data directories. It does not need real server credentials. The Python source lives in `src/hilait`; the browser UI and bundled terminal live in `src/hilait/static`.
+The test suite uses an isolated loopback SSH fixture and temporary data directories. It does not need real server credentials. The Python source lives in `src/hilait`; the browser UI and bundled terminal live in `src/hilait/static`. See [the codebase reference](docs/CODEBASE.md) for the architecture, stored files, APIs, and security invariants.
 GitHub Actions runs the same tests and wheel build on Windows, Linux, and macOS with Python 3.11 and 3.12.
 
 ## License

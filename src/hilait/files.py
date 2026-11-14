@@ -44,7 +44,7 @@ def local_path(root: str, value: str, *, exists: bool = False) -> Path:
         target = folder / target
     resolved = target.resolve(strict=exists)
     if resolved != folder and folder not in resolved.parents:
-        raise PermissionError("Local transfers must stay inside the approved folder.")
+        raise PermissionError("Transfers must stay inside this grant's Hilait transfer folder.")
     return resolved
 
 

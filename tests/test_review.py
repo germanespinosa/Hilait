@@ -222,7 +222,6 @@ async def test_change_authorization_file_access(tmp_path, activate_otp, monkeypa
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
         assert (await client.post(endpoint, json={"file_access": "Remote"})).status_code == 401
         assert (await client.post(endpoint, headers=headers, json={"file_access": "Invalid"})).status_code == 400
-        assert (await client.post(endpoint, headers=headers, json={"file_access": "LocalTransfers"})).status_code == 400
         assert runtime.agents.active_authorization(agent["id"], profile["id"])["file_access"] == "None"
         await runtime.agents.request(agent, profile["id"], purpose, "Remote")
         assert auto_approved == []
@@ -233,15 +232,15 @@ async def test_change_authorization_file_access(tmp_path, activate_otp, monkeypa
         await runtime.agents.request(agent, profile["id"], purpose, "Remote")
         assert len(auto_approved) == 1
 
-        local = await client.post(endpoint, headers=headers,
-                                  json={"file_access": "LocalTransfers", "local_folder": " /srv/hilait-transfer "})
+        # The transfer folder is chosen by Hilait at approval time, never typed.
+        local = await client.post(endpoint, headers=headers, json={"file_access": "LocalTransfers"})
         assert local.status_code == 200, local.text
-        assert local.json()["local_folder"] == "/srv/hilait-transfer"
+        assert "local_folder" not in local.json()
         assert runtime.store.read("authorizations.json", [])[0]["file_access"] == "LocalTransfers"
 
         off = await client.post(endpoint, headers=headers, json={"file_access": "None"})
         assert off.status_code == 200, off.text
-        assert off.json()["local_folder"] is None
+        assert "local_folder" not in off.json()
         assert runtime.agents.active_authorization(agent["id"], profile["id"])["file_access"] == "None"
         assert any(record["kind"] == "automatic_approval_file_access_changed"
                    for record in runtime.audit.records())

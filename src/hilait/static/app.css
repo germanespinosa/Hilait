@@ -270,3 +270,11 @@ a { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   button { transition: none; }
 }
+.transfer-browser { display: grid; gap: 4px; margin-bottom: 18px; }
+.transfer-path { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--muted); margin-bottom: 4px; }
+.transfer-browser .file-name-button { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transfer-actions { display: flex; gap: 6px; }
+.transfer-link { min-height: 30px; padding: 4px 8px; font-size: 13px; background: transparent; border-color: transparent; }
+.transfer-link:hover { background: var(--button-hover); }
+.transfer-path .transfer-link { padding: 4px 6px; }
+.transfer-upload { display: inline-flex; align-items: center; cursor: pointer; border: 1px solid var(--line); border-radius: 8px; }

@@ -9,8 +9,9 @@ User=hilait
 Group=hilait
 WorkingDirectory=/var/lib/hilait
 Environment=HILAIT_DATA_DIR=/var/lib/hilait
+Environment=HILAIT_TRANSFER_DIR=/var/lib/hilait-transfers
 LoadCredential=master.key:/etc/hilait/master.key
-StateDirectory=hilait
+StateDirectory=hilait hilait-transfers
 StateDirectoryMode=0700
 ExecStart=/opt/hilait-venv/bin/hilait serve --lan --port 8765
 Restart=on-failure

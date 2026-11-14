@@ -12,6 +12,7 @@ from typing import Any
 from .files import FileService
 from .sessions import SessionManager
 from .storage import Audit, Store, utc_now
+from .transfers import TransferArea
 
 SCOPES = {"None": 0, "Remote": 1, "LocalTransfers": 2}
 ENDED = {"Denied", "Expired", "Revoked", "Closed"}
@@ -88,8 +89,10 @@ class Grant:
 
 
 class AgentRuntime:
-    def __init__(self, store: Store, audit: Audit, sessions: SessionManager, files: FileService) -> None:
+    def __init__(self, store: Store, audit: Audit, sessions: SessionManager, files: FileService,
+                 transfers: TransferArea | None = None) -> None:
         self.store, self.audit, self.sessions, self.files = store, audit, sessions, files
+        self.transfers = transfers or TransferArea(store, audit)
         self.grants: dict[str, Grant] = {}
         self.lock = asyncio.Lock()
         self.notifications: set[asyncio.Queue] = set()
@@ -166,12 +169,9 @@ class AgentRuntime:
                      and item.get("privilege", "legacy") == tier), None)
 
     def create_authorization(self, agent_id: str, profile_id: str, hours: float | None, scope: str,
-                             local_folder: str | None = None, *, permanent: bool = False,
-                             privilege: str | None = None) -> dict:
+                             *, permanent: bool = False, privilege: str | None = None) -> dict:
         if (not permanent and (hours is None or not 0 < hours <= 8760)) or scope not in SCOPES:
             raise ValueError("Choose a period up to 365 days and a valid file scope.")
-        if scope == "LocalTransfers" and not local_folder:
-            raise ValueError("Local transfers require a chosen folder.")
         profile = self.store.profile(profile_id)
         tier = resolve_privilege(profile, privilege)
         if self.active_authorization(agent_id, profile_id, tier):
@@ -184,7 +184,7 @@ class AgentRuntime:
                 "connection": profile["name"], "expires_utc": None if permanent else (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat(),
                 "permanent": permanent, "privilege": tier,
                 "credential_revision": credential_revision(profile, tier),
-                "file_access": scope, "local_folder": local_folder, "revoked": False}
+                "file_access": scope, "revoked": False}
         items = self.authorizations()
         items.append(item)
         self.audit.write("automatic_approval_enabled", {"agentId": agent_id, "profile": profile_id}, item)
@@ -218,26 +218,20 @@ class AgentRuntime:
         self._notify({"type": "authorizations"})
         return item
 
-    def change_authorization_file_access(self, authorization_id: str, scope: str,
-                                         local_folder: str | None = None) -> dict:
+    def change_authorization_file_access(self, authorization_id: str, scope: str) -> dict:
         if not isinstance(scope, str) or scope not in SCOPES:
             raise ValueError("Choose a valid file access level.")
-        if local_folder is not None and not isinstance(local_folder, str):
-            raise ValueError("Choose a valid server folder.")
-        local_folder = local_folder.strip() if local_folder else None
-        if scope == "LocalTransfers" and not local_folder:
-            raise ValueError("Local transfers require a chosen server folder.")
         if authorization_id not in {item["id"] for item in self.active_authorizations()}:
             raise KeyError("Active authorization not found.")
         items = self.authorizations()
         item = next(item for item in items if item["id"] == authorization_id)
-        previous = {"file_access": item["file_access"], "local_folder": item.get("local_folder")}
+        previous = {"file_access": item["file_access"]}
         item["file_access"] = scope
-        item["local_folder"] = local_folder if scope == "LocalTransfers" else None
+        item.pop("local_folder", None)
         self.audit.write("automatic_approval_file_access_changed",
                          {"agentId": item["agent_id"], "profile": item["profile_id"]},
                          {"authorizationId": item["id"], "previous": previous,
-                          "current": {"file_access": item["file_access"], "local_folder": item["local_folder"]}})
+                          "current": {"file_access": item["file_access"]}})
         self.store.write("authorizations.json", items)
         self._notify({"type": "authorizations"})
         return item
@@ -274,7 +268,7 @@ class AgentRuntime:
         authorization = self.active_authorization(agent["id"], profile_id, tier)
         if authorization and SCOPES[scope] <= SCOPES[authorization["file_access"]]:
             try:
-                await self.approve(grant.id, local_folder=authorization.get("local_folder"))
+                await self.approve(grant.id)
             except Exception as exc:
                 self.audit.write("automatic_approval_failed", grant.context(), {"error": str(exc)})
         if grant.state == "Pending" and self.on_pending:
@@ -301,14 +295,13 @@ class AgentRuntime:
         if files and SCOPES[grant.file_access] < SCOPES["Remote"]:
             raise PermissionError("Remote file access was not requested and approved.")
         if local and grant.file_access != "LocalTransfers":
-            raise PermissionError("Local transfers were not requested and approved.")
+            raise PermissionError("Server-folder transfers (LocalTransfers) were not requested and approved.")
         if active:
             grant.last_activity = time.monotonic()
         return grant
 
-    async def approve(self, grant_id: str, *, local_folder: str | None = None,
-                      duration_hours: float | None = None, secret: str | None = None,
-                      permanent: bool = False) -> Grant:
+    async def approve(self, grant_id: str, *, duration_hours: float | None = None,
+                      secret: str | None = None, permanent: bool = False) -> Grant:
         grant = self.pending(grant_id)
         if not grant or grant.state != "Pending":
             raise ValueError("Pending request not found.")
@@ -318,12 +311,14 @@ class AgentRuntime:
             raise ValueError("Choose either a duration or permanent authorization.")
         if duration_hours is not None and not 0 < duration_hours <= 8760:
             raise ValueError("Choose an authorization period up to 365 days.")
-        if grant.file_access == "LocalTransfers" and not local_folder:
-            raise ValueError("Choose a local transfer folder for this request.")
         agent = next((a for a in self.store.agents() if a["id"] == grant.agent_id and a["active"]), None)
         if not agent:
             raise PermissionError("Agent access was revoked.")
-        profile = login_profile(self.permitted_profile(agent, grant.profile_id, grant.privilege), grant.privilege)
+        saved_profile = self.permitted_profile(agent, grant.profile_id, grant.privilege)
+        profile = login_profile(saved_profile, grant.privilege)
+        # Hilait chooses the server-side transfer folder; nobody types a path.
+        local_folder = (self.transfers.folder_for(agent, saved_profile, grant.privilege)
+                        if grant.file_access == "LocalTransfers" else None)
         self.approving.add(grant_id)
         try:
             session = await self.sessions.open(profile, secret=secret, owner=grant.agent,
@@ -351,13 +346,13 @@ class AgentRuntime:
                         item["expires_utc"] = None if permanent else (datetime.now(timezone.utc) + timedelta(hours=duration_hours)).isoformat()
                         item["permanent"] = permanent
                         item["file_access"] = grant.file_access
-                        item["local_folder"] = local_folder
+                        item.pop("local_folder", None)
                         self.audit.write("automatic_approval_updated", grant.context(), item)
                         break
                 self.store.write("authorizations.json", items)
             else:
                 self.create_authorization(grant.agent_id, grant.profile_id, duration_hours,
-                                          grant.file_access, local_folder, permanent=permanent,
+                                          grant.file_access, permanent=permanent,
                                           privilege=grant.privilege)
         return grant
 

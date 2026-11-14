@@ -87,7 +87,7 @@ def build_mcp(server_url: str | None = None, ca_cert: str | None = None) -> MCPS
     def connections() -> list[dict]:
         return call("connections", {})
 
-    @mcp.tool(description="Request a fresh SSH session for a detailed stated purpose (80–8000 characters). Include desired fileAccess: None, Remote, or LocalTransfers. Request privilege=normal or elevated on machines with separate accounts; omit it for single-account machines. Elevated requires separate approval and stronger review. NO SHENANIGANS: activity is logged and reviewed; obfuscation or suspicious behavior may revoke access. When done, call release_access with closeConnection=true.")
+    @mcp.tool(description="Request a fresh SSH session for a detailed stated purpose (80–8000 characters). Include desired fileAccess: None, Remote, or LocalTransfers (Remote plus copies through a Hilait-managed transfer folder on the server). Request privilege=normal or elevated on machines with separate accounts; omit it for single-account machines. Elevated requires separate approval and stronger review. NO SHENANIGANS: activity is logged and reviewed; obfuscation or suspicious behavior may revoke access. When done, call release_access with closeConnection=true.")
     def request_access(connection: str, purpose: str, fileAccess: str = "None", privilege: str | None = None) -> dict:
         return call("request_access", locals())
 
@@ -117,7 +117,7 @@ def build_mcp(server_url: str | None = None, ca_cert: str | None = None) -> MCPS
               overwrite: bool = False, recursive: bool = False, mode: str | None = None) -> dict:
         return call("files", locals())
 
-    @mcp.tool(description="Copy a file or folder without overwriting or following symlinks. Direction is remote, upload, or download. Remote-to-remote requires approved file access on both grants. Local transfers stay inside the human-approved server folder.")
+    @mcp.tool(description="Copy a file or folder without overwriting or following symlinks. Direction is remote, upload, or download. Remote-to-remote requires approved file access on both grants. upload/download move files between the remote machine and this grant's Hilait transfer folder on the server (localFolder in access_status); give that side as a path relative to the folder.")
     def copy(access: str, direction: str, path: str, destination: str,
              destinationAccess: str | None = None) -> dict:
         return call("copy", locals())

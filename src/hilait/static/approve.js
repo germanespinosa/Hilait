@@ -51,14 +51,13 @@
     $('#elevated-warning').classList.toggle('hidden', !elevated);
     $('#elevated-confirm-field').classList.toggle('hidden', !elevated);
     $('#decision-form').elements.elevated_confirmed.required = elevated;
-    $('#request-files').textContent = ({None:'No file access', Remote:'Remote files', LocalTransfers:'Remote files and local transfers'})[grant.fileAccess] || grant.fileAccess;
+    $('#request-files').textContent = ({None:'No file access', Remote:'Remote files', LocalTransfers:'Remote files and server transfer folder'})[grant.fileAccess] || grant.fileAccess;
     $('#request-purpose').textContent = grant.purpose;
     const active = grant.state === 'Pending';
     $('#decision-form').classList.toggle('hidden', !active);
     $('#request-state').classList.toggle('hidden', active);
     if (!active) $('#request-state').textContent = `This request is ${grant.state.toLowerCase()}. No further decision is needed.`;
     $('#folder-field').classList.toggle('hidden', grant.fileAccess !== 'LocalTransfers');
-    $('#decision-form').elements.local_folder.required = grant.fileAccess === 'LocalTransfers';
     const choice = new URLSearchParams(location.search).get('choice');
     $('#decision-hint').textContent = choice === 'reject' ? 'Review the request, then choose Deny request to confirm.' : 'Review the request and its file scope before approving.';
     if (choice === 'reject') $('#deny').focus();
@@ -99,7 +98,6 @@
     const payload = action === 'approve' ? {
       ...(form.elements.duration_hours.value === 'permanent' ? {permanent:true} :
          form.elements.duration_hours.value ? {duration_hours:Number(form.elements.duration_hours.value)} : {}),
-      ...(form.elements.local_folder.value ? {local_folder:form.elements.local_folder.value} : {}),
       ...(form.elements.secret.value ? {secret:form.elements.secret.value} : {}),
       ...(form.elements.elevated_confirmed.checked ? {elevated_confirmed:true} : {})
     } : {};

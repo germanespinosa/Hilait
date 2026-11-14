@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
@@ -28,6 +28,7 @@ from .ntfy import NtfyNotifier
 from .review import ENDPOINTS, Reviewer
 from .sessions import HostKeyApprovalNeeded, SessionManager
 from .storage import Audit, Store
+from .transfers import TransferArea
 
 STATIC = Path(__file__).parent / "static"
 LOG = logging.getLogger(__name__)
@@ -55,7 +56,8 @@ class Runtime:
         self.audit = Audit(self.store)
         self.sessions = SessionManager(self.store, self.audit)
         self.files = FileService(self.sessions, self.audit)
-        self.agents = AgentRuntime(self.store, self.audit, self.sessions, self.files)
+        self.transfers = TransferArea(self.store, self.audit)
+        self.agents = AgentRuntime(self.store, self.audit, self.sessions, self.files, self.transfers)
         self.enrollment = AgentEnrollment(self.store, self.audit)
         self.ntfy = NtfyNotifier(self.store, self.audit)
         self.agents.on_pending = self.ntfy.notify_pending
@@ -240,6 +242,10 @@ def create_app(root: Path | None = None) -> FastAPI:
     @app.exception_handler(RateLimitError)
     async def otp_rate_handler(request: Request, exc: RateLimitError):
         return JSONResponse(status_code=429, content={"error": str(exc)}, headers={"Retry-After": "300"})
+
+    @app.exception_handler(FileExistsError)
+    async def exists_handler(request: Request, exc: FileExistsError):
+        return JSONResponse(status_code=409, content={"error": str(exc) or "That name is already in use."})
 
     @app.exception_handler(KeyError)
     async def missing_handler(request: Request, exc: KeyError):
@@ -655,7 +661,7 @@ def create_app(root: Path | None = None) -> FastAPI:
             raise ValueError("Explicitly confirm elevated standing authorization.")
         return runtime.agents.create_authorization(payload["agent_id"], payload["profile_id"],
                                                    None if payload.get("permanent") is True else float(payload["hours"]),
-                                                   payload.get("file_access", "None"), payload.get("local_folder"),
+                                                   payload.get("file_access", "None"),
                                                    permanent=payload.get("permanent") is True,
                                                    privilege=payload.get("privilege"))
 
@@ -668,8 +674,7 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @app.post("/api/authorizations/{authorization_id}/file-access", dependencies=[Depends(admin)])
     async def change_authorization_file_access(authorization_id: str, payload: dict):
-        return runtime.agents.change_authorization_file_access(
-            authorization_id, payload.get("file_access"), payload.get("local_folder"))
+        return runtime.agents.change_authorization_file_access(authorization_id, payload.get("file_access"))
 
     @app.post("/api/authorizations/{authorization_id}/revoke", dependencies=[Depends(admin)])
     async def revoke_authorization(authorization_id: str):
@@ -697,9 +702,8 @@ def create_app(root: Path | None = None) -> FastAPI:
         if action == "approve":
             if grant.privilege == "elevated" and payload.get("elevated_confirmed") is not True:
                 raise ValueError("Explicitly confirm this elevated SSH connection.")
-            return (await runtime.agents.approve(grant_id, local_folder=payload.get("local_folder"),
-                        duration_hours=payload.get("duration_hours"), secret=payload.get("secret"),
-                        permanent=payload.get("permanent") is True)).public()
+            return (await runtime.agents.approve(grant_id, duration_hours=payload.get("duration_hours"),
+                        secret=payload.get("secret"), permanent=payload.get("permanent") is True)).public()
         if action == "reject":
             if grant.state != "Pending" or grant.id in runtime.agents.approving:
                 raise ValueError("Pending request not found.")
@@ -739,6 +743,31 @@ def create_app(root: Path | None = None) -> FastAPI:
         async with activity_lock:
             return await asyncio.to_thread(runtime.save_activity_settings,
                                            payload.get("directory"), payload.get("retention_days"), set(reviewing))
+
+    @app.get("/api/transfers/settings", dependencies=[Depends(admin)])
+    async def transfer_settings():
+        return runtime.transfers.settings()
+
+    @app.put("/api/transfers/settings", dependencies=[Depends(admin)])
+    async def save_transfer_settings(payload: dict):
+        return await asyncio.to_thread(runtime.transfers.update_settings, payload.get("directory"))
+
+    @app.get("/api/transfers", dependencies=[Depends(admin)])
+    async def list_transfers(path: str = ""):
+        return await asyncio.to_thread(runtime.transfers.list, path)
+
+    @app.get("/api/transfers/file", dependencies=[Depends(admin)])
+    async def download_transfer(path: str):
+        target = await asyncio.to_thread(runtime.transfers.file, path)
+        return FileResponse(target, filename=target.name, headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/transfers/file", dependencies=[Depends(admin)])
+    async def upload_transfer(path: str, request: Request):
+        return await runtime.transfers.upload(path, request.stream())
+
+    @app.delete("/api/transfers/file", dependencies=[Depends(admin)])
+    async def delete_transfer(path: str):
+        return await asyncio.to_thread(runtime.transfers.delete, path)
 
     @app.get("/api/logs/{grant_id}", dependencies=[Depends(admin)])
     async def log_detail(grant_id: str):

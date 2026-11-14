@@ -32,7 +32,7 @@
         <form id="decision-form">
           <label>Approval duration<select name="duration_hours"><option value="">This request only</option><option value="0.083333">5 minutes</option><option value="0.25">15 minutes</option><option value="0.5">30 minutes</option><option value="1">1 hour</option><option value="2">2 hours</option><option value="4">4 hours</option><option value="8">8 hours</option><option value="24">24 hours</option><option value="permanent">Permanent until revoked</option></select></label>
           <p class="hint">A duration approves future requests from this agent for this machine and file scope only.</p>
-          <label id="folder-field" class="hidden">Local transfer folder on the Hilait server<input name="local_folder" autocomplete="off"></label>
+          <p id="folder-field" class="hint hidden">Hilait will create a transfer folder on its server for this agent, machine, and tier. Find its files in the workspace under Settings → File transfers.</p>
           <label>SSH password or key passphrase, if not saved<input name="secret" type="password" autocomplete="off"></label>
           <label id="elevated-confirm-field" class="elevated-confirm hidden"><input name="elevated_confirmed" type="checkbox">I explicitly approve this elevated SSH session for the stated purpose.</label>
           <p id="decision-hint" class="hint"></p>

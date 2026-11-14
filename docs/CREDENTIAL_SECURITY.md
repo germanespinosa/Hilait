@@ -80,7 +80,11 @@ symlinked or broadly readable secret files instead of following them. The
 systemd unit also gives the process no Linux capabilities, blocks privilege
 gain, hides home directories, restricts writable paths, and uses a private
 temporary directory. The service must still have network access for SSH,
-model providers, and ntfy.
+model providers, and ntfy. The unit also creates `/var/lib/hilait-transfers`
+(`hilait:hilait`, mode `0700`) for agent server-side transfers. Files there
+are ordinary, **unencrypted** copies of what agents downloaded or you staged;
+treat that folder with the same care as the machines they came from, and
+clean it out in **Settings → File transfers** when work is done.
 
 On Windows and macOS, or when run manually without a systemd credential,
 Hilait keeps `master.key` in its per-user data directory with owner-only

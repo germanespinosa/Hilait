@@ -6,8 +6,8 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed against commit `d008b57` ("Configure activity storage and
-retention"), package version **0.1.43**, on 2026-11-14.* Update this file
+*Last reviewed for package version **0.1.44** (managed transfer folders),
+2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
 
@@ -55,6 +55,7 @@ src/hilait/
   admin_auth.py    TOTP (RFC 6238) login, browser sessions, OTP seed lifecycle, rate limiting
   sessions.py      SSH sessions (Paramiko PTY), host-key trust policy, output buffer, screen snapshots
   files.py         Audited SFTP operations and collision-safe copy/upload/download
+  transfers.py     Hilait-managed server transfer folders (root setting, per agent/machine/tier folders, admin browse API)
   agents.py        Grants, tiers (legacy/normal/elevated), standing authorizations, idle timeout
   enrollment.py    Remote agent self-enrollment requests (claim-secret protected)
   mcp_server.py    stdio MCP bridge run on the agent's machine; forwards to /agent/{tool}
@@ -94,6 +95,7 @@ sub-packages.
  │  audit  : Audit          ── activity-records/<generation>/<shard>/<seq>.audit   │
  │  sessions: SessionManager ─ Paramiko SSHClient + PTY channel per session        │
  │  files  : FileService    ── SFTP over a session's client                        │
+ │  transfers: TransferArea ── server-side transfer root and per-grant folders     │
  │  agents : AgentRuntime   ── grants, authorizations, idle loop, event fan-out    │
  │  enrollment: AgentEnrollment                                                    │
  │  ntfy   : NtfyNotifier   (agents.on_pending → ntfy.notify_pending)              │
@@ -180,6 +182,7 @@ Master key: Fernet key from `HILAIT_MASTER_KEY_FILE`, else
 | `activity-settings.json` | plaintext | — | Activity folder + `retention_days` |
 | `activity-records.current` | — | — | 32-hex active audit "generation" |
 | `activity-records/` (movable) | `Audit` | master | Audit records (see §9) |
+| `transfer-settings.json` | `TransferArea` | plaintext | Optional transfer root override |
 | `lan.crt`, `lan.key` | `tls.py` | key PKCS#8-encrypted with HMAC(master, "Hilait LAN TLS private key v1") | LAN HTTPS identity |
 
 `CONNECTION_FILES` (`connections`, `known-hosts`, `authorizations`) use a
@@ -191,6 +194,15 @@ Consequences that must be preserved:
   or disabling OTP, or `hilait otp reset`, discards them** (UI warns; all
   sessions must be disconnected first).
 * Agent grants on profiles that disappear are revoked after key replacement.
+
+**Transfer root** (outside the data dir): saved setting, else
+`HILAIT_TRANSFER_DIR` (absolute), else `<data dir>-transfers` as a sibling
+(`/var/lib/hilait-transfers` for the systemd unit, which lists it in
+`StateDirectory=`). It must be a private (0700, owned) non-symlink folder
+outside the data and activity folders. Layout:
+`<root>/<agent-slug>-<agent id[:8]>/<machine-slug>-<profile id[:8]>/<tier>`,
+each level 0700. Files there are **not encrypted**; they are ordinary files
+the agent copied or the admin staged.
 
 On the agent side, `hilait mcp` keeps its token/pending claim in
 `<user data>/Hilait/agent-clients/<sha256(server url)>.json` unless
@@ -259,7 +271,10 @@ States: `Pending → Approved ⇄ Paused → {Denied, Expired, Revoked, Closed}`
    10 minutes (checked lazily in `pending()`/`owned()`).
 4. Approval (`AgentRuntime.approve`) opens a **new** SSH session for that
    grant (never reuses or promotes one), re-validates permissions and
-   `credential_revision` after the connection opens (race guard), optionally
+   `credential_revision` after the connection opens (race guard). For
+   `LocalTransfers` it calls `TransferArea.folder_for(agent, profile, tier)`
+   to create/reuse the grant's server folder (never a typed path) and stores
+   it as `grant.local_folder` (agent sees `localFolder`). It optionally
    creates/updates a timed (≤8760 h) or permanent authorization. Elevated
    approval requires `elevated_confirmed: true`.
 5. Human controls: pause, takeover (sets `human_controlled`, pauses idle
@@ -274,7 +289,8 @@ a `guard` after acquiring the session's file lock.
 ### Standing authorizations
 Records in `authorizations.json`: `id, agent_id, profile_id, connection,
 expires_utc | permanent, privilege, credential_revision, file_access,
-local_folder, revoked`. `active_authorizations()` filters out revoked,
+revoked`. (Records from ≤0.1.43 may still carry an ignored `local_folder`;
+it is dropped when the record's file access is updated.) `active_authorizations()` filters out revoked,
 expired, agent-inactive, tier-disallowed, or credential-revision-stale
 entries. Revocation keeps the record (audit history).
 
@@ -316,7 +332,8 @@ depending on `sudo_policy` (`runtime.sudo_consents`, in memory).
   (`terminal_input_sent`); **human input is redacted** to its length.
 * `files.remote_path` requires absolute paths, forbids `..` and NUL, and
   normalizes Windows paths (`C:\x` → `/C:/x`, rejects reserved names).
-  `local_path` confines LocalTransfers to the approved server folder.
+  `local_path` confines LocalTransfers to the grant's Hilait transfer
+  folder; agents give that side as a path relative to it.
 * Read/write chunks ≤256 KiB. Writes never overwrite unless
   `overwrite=true` on an existing file. Copies never overwrite, refuse
   symlinks, cap depth at 64, and write via `.part` temp + rename.
@@ -349,7 +366,9 @@ depending on `sudo_policy` (`runtime.sudo_consents`, in memory).
   `copy_completed`, `access_requested`, `access_state_changed`,
   `sudo_requested/output`, `automatic_approval_*`, `agent_token_*`,
   `notification_*`, `activity_reviewed`, `review_access_revoked`,
-  `agent_idle_timeout`, `session_log_deleted`, `activity_retention_applied`.
+  `agent_idle_timeout`, `session_log_deleted`, `activity_retention_applied`,
+  `transfer_settings_changed`, `transfer_file_uploaded/downloaded`,
+  `transfer_item_deleted`.
 
 ---
 
@@ -397,7 +416,10 @@ Admin (Bearer session): `/api/otp` (+ `setup`, `confirm`, `cancel`,
 (+ `{id}/extend|file-access|revoke`), `GET /api/grants/{id}`,
 `POST /api/grants/{id}/{approve|reject|pause|takeover|resume|revoke}`,
 `/api/logs` (+ `{id}`, `DELETE {id}`, `{id}/export`),
-`GET|PUT /api/activity/settings`, `POST /api/review/settings|models|{id}`,
+`GET|PUT /api/activity/settings`, `GET|PUT /api/transfers/settings`,
+`GET /api/transfers?path=` (list), `GET|POST|DELETE /api/transfers/file?path=`
+(download / raw-body upload, never overwrites / delete; paths relative to the
+transfer root), `POST /api/review/settings|models|{id}`,
 `POST /api/review-all`, `POST /api/sudo/{id}/decide`.
 
 Agent (Bearer agent token): `POST /agent/{tool}`.
@@ -425,7 +447,10 @@ model.
   unicode11, unicode-graphemes). After editing it run `npm ci && npm run
   build` and commit `static/vendor/xterm.js` and fonts.
 * `approve.*` is the standalone phone approval page (OTP sign-in, full
-  purpose, duration, local folder, elevated confirmation).
+  purpose, duration, elevated confirmation).
+* Settings → File transfers (`transferSettings` in app.js) browses the
+  transfer root with breadcrumbs, uploads/downloads/deletes items, and edits
+  the root folder.
 * Static URLs are cache-busted with `?v={{VERSION}}`, so **bump the version
   whenever static assets change**. `{{BUILD}}` shows the pip VCS commit
   (`build_id()`), `package`, or `source`.
@@ -445,7 +470,7 @@ hilait serve --open          # local run on http://127.0.0.1:8765
 * Tests use temporary data dirs and a loopback asyncssh server
   (`tests/ssh_fixture.py`); `conftest.activate_otp` enables OTP on a runtime.
   Main suites: `test_integration` (SSH, host trust, SFTP, agent scope),
-  `test_tiered_access`, `test_review`, `test_storage`,
+  `test_tiered_access`, `test_transfers`, `test_review`, `test_storage`,
   `test_security_storage`, `test_admin_auth`, `test_agent_enrollment`,
   `test_ntfy`, `test_lan`, `test_mcp`, `test_build_info`,
   `test_terminal_startup`.
@@ -486,3 +511,6 @@ hilait serve --open          # local run on http://127.0.0.1:8765
 9. Connection data is encrypted with the OTP-seed key; replacing the seed
    destroys it by design.
 10. The browser UI loads nothing from third-party origins.
+11. Server-side transfer locations are chosen by Hilait, never by an agent
+    or a typed approval field, and are separate per agent × machine × tier
+    (so they cannot bridge tiers that `copy` keeps apart).

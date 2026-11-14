@@ -114,19 +114,29 @@ class TransferArea:
         _private_directory(root)
         return root.resolve()
 
-    def _target(self, relative: str, *, exists: bool) -> tuple[Path, Path]:
-        if not isinstance(relative, str) or "\x00" in relative or Path(relative).is_absolute():
+    @staticmethod
+    def _relative(relative: str) -> str:
+        # No roots, drives, UNC paths, or "..". On Windows "\\" and ":" are separator and
+        # drive syntax, so they are refused there; on POSIX they are ordinary name characters.
+        reserved = "\x00\\:" if os.name == "nt" else "\x00"
+        if (not isinstance(relative, str) or any(char in relative for char in reserved)
+                or relative.startswith("/") or Path(relative).anchor or ".." in Path(relative).parts):
             raise ValueError("Use a path relative to the transfer folder.")
+        return relative
+
+    def _target(self, relative: str, *, exists: bool) -> tuple[Path, Path]:
+        relative = self._relative(relative)
         root = self._existing_root()
-        return root, local_path(str(root), relative or ".", exists=exists)
+        try:
+            return root, local_path(str(root), relative or ".", exists=exists)
+        except FileNotFoundError as exc:
+            raise KeyError("Transfer item not found.") from exc
 
     def _entry(self, relative: str) -> tuple[Path, Path]:
         """Resolve the parent but not the final component, so links are handled as links."""
-        if not isinstance(relative, str) or "\x00" in relative or not relative.strip("/"):
+        if not isinstance(relative, str) or not relative.strip("/"):
             raise ValueError("Choose an item inside the transfer folder.")
-        parts = Path(relative).parts
-        if Path(relative).is_absolute() or ".." in parts:
-            raise ValueError("Use a path relative to the transfer folder.")
+        parts = Path(self._relative(relative)).parts
         root, parent = self._target(Path(relative).parent.as_posix(), exists=True)
         if not parent.is_dir():
             raise ValueError("Choose an existing transfer folder.")

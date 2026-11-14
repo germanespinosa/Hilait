@@ -97,11 +97,15 @@ async def test_transfer_area_api(tmp_path, activate_otp):
         assert top["path"] == "" and top["entries"][0]["directory"] is True
         downloaded = await client.get("/api/transfers/file", params={"path": "agent-a/in.txt"}, headers=headers)
         assert downloaded.status_code == 200 and downloaded.content == b"staged input"
-        for escape in ("../data/master.key", "/etc/passwd", "agent-a/../../data/master.key"):
+        escapes = ["../data/master.key", "/etc/passwd", "agent-a/../../data/master.key"]
+        if os.name == "nt":
+            escapes += ["C:/Windows/win.ini", "C:win.ini", "\\\\server\\share\\x", "agent-a\\..\\..\\x"]
+        for escape in escapes:
             response = await client.get("/api/transfers/file", params={"path": escape}, headers=headers)
-            assert response.status_code in {400, 403}, escape
+            assert response.status_code == 400, escape
             response = await client.post("/api/transfers/file", params={"path": escape}, headers=headers, content=b"x")
-            assert response.status_code in {400, 403}, escape
+            assert response.status_code == 400, escape
+        assert sorted(item.name for item in root.iterdir()) == ["agent-a"]
         assert (await client.delete("/api/transfers/file", params={"path": ""}, headers=headers)).status_code == 400
         deleted = await client.delete("/api/transfers/file", params={"path": "agent-a/in.txt"}, headers=headers)
         assert deleted.status_code == 200

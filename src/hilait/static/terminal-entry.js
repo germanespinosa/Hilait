@@ -19,6 +19,29 @@ const terminalAppearance = {
 };
 window.HilaitTerminalAppearance=terminalAppearance;
 
+// The workspace CSP is style-src 'self', which blocks the <style> elements
+// xterm.js injects for cell dimensions, letter spacing, selection colours, and
+// its scrollbar. Without them glyphs drift from the cell grid (so the caret is
+// offset from the text) and selections are invisible. Mirror each injected
+// stylesheet into a constructable stylesheet: CSSOM is not subject to
+// style-src, so the strict policy can stay in place.
+function mirrorInjectedStyles(root) {
+  if (!('adoptedStyleSheets' in document) || typeof CSSStyleSheet.prototype.replaceSync !== 'function') return () => {};
+  const sheets = new Map();
+  const sync = () => {
+    for (const style of root.querySelectorAll('style')) {
+      let sheet = sheets.get(style);
+      if (!sheet) { sheet = new CSSStyleSheet(); sheets.set(style, sheet); document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]; }
+      if (sheet.hilaitText !== style.textContent) { sheet.replaceSync(style.textContent || ''); sheet.hilaitText = style.textContent; }
+    }
+    for (const [style, sheet] of sheets) if (!style.isConnected) { sheets.delete(style); document.adoptedStyleSheets = document.adoptedStyleSheets.filter(item => item !== sheet); }
+  };
+  const observer = new MutationObserver(sync);
+  observer.observe(root, {subtree: true, childList: true, characterData: true});
+  sync();
+  return () => { observer.disconnect(); const owned = new Set(sheets.values()); document.adoptedStyleSheets = document.adoptedStyleSheets.filter(item => !owned.has(item)); sheets.clear(); };
+}
+
 class HilaitTerminal {
   constructor(element, platform = 'unix') {
     this.element = element;
@@ -45,6 +68,7 @@ class HilaitTerminal {
       this.term.onScroll(()=>this.updateCaret()),this.term.onResize(()=>this.updateCaret())];
     this.ready = document.fonts.load('400 14px "Hilait Mono"').catch(()=>[]).then(()=>{
       if(this.disposed)return;
+      this._unmirrorStyles=mirrorInjectedStyles(element);
       this.term.open(element);
       this.opened=true;
       const screen=this.term.element.querySelector('.xterm-screen');
@@ -109,6 +133,6 @@ class HilaitTerminal {
   write(base64){if(base64)this.term.write(Uint8Array.from(atob(base64),char=>char.charCodeAt(0)),()=>this.updateCaret());}
   screen(){const buffer=this.term.buffer.active;return {columns:this.term.cols,rows:this.term.rows,cursorX:buffer.cursorX,cursorY:buffer.cursorY,buffer:buffer.type,
     lines:Array.from({length:this.term.rows},(_,row)=>buffer.getLine(buffer.baseY+row)?.translateToString(true)??'')};}
-  dispose(){this.disposed=true;if(this.fitFrame)cancelAnimationFrame(this.fitFrame);this.observer?.disconnect();if(this._context)this.element.removeEventListener('contextmenu',this._context);this.caretEvents?.forEach(event=>event.dispose());this.caret?.remove();removeEventListener('hilait-terminal-appearance-change',this._appearanceListener);this.term.dispose();}
+  dispose(){this.disposed=true;if(this.fitFrame)cancelAnimationFrame(this.fitFrame);this.observer?.disconnect();if(this._context)this.element.removeEventListener('contextmenu',this._context);this.caretEvents?.forEach(event=>event.dispose());this.caret?.remove();this.term.dispose();this._unmirrorStyles?.();removeEventListener('hilait-terminal-appearance-change',this._appearanceListener);}
 }
 window.HilaitTerminal=HilaitTerminal;

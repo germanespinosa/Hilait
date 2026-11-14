@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.44** (managed transfer folders),
+*Last reviewed for package version **0.1.45** (terminal CSP style fix),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -443,6 +443,14 @@ model.
   (`hilait-token`).
 * CSP in `index.html` is `'self'` only — no inline scripts/styles, no CDNs.
   Keep it that way; all assets are vendored.
+* xterm.js injects `<style>` elements (cell dimensions/letter spacing,
+  theme and selection colours, scrollbar) that the strict CSP blocks.
+  `mirrorInjectedStyles()` in `terminal-entry.js` copies them into
+  constructable stylesheets (`document.adoptedStyleSheets`), which CSP does
+  not govern. Without it, text drifts from the cell grid (the custom
+  `.terminal-caret` overlay looks offset) and selections are invisible. The
+  CSP console warnings about those `<style>` elements are expected.
+  `tests/test_terminal_assets.py` guards this.
 * `terminal-entry.js` is the only bundled source (xterm 6 + fit, search,
   unicode11, unicode-graphemes). After editing it run `npm ci && npm run
   build` and commit `static/vendor/xterm.js` and fonts.

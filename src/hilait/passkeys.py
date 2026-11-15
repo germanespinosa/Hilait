@@ -271,7 +271,13 @@ class Passkeys:
         with self.lock:
             for key in [key for key, item in self.challenges.items() if item["expires"] < now]:
                 del self.challenges[key]
-            if len(self.challenges) > 200:
+            if purpose == "login":
+                # Sign-in challenges are unauthenticated: keep only the newest few.
+                logins = sorted((item["expires"], key) for key, item in self.challenges.items()
+                                if item["purpose"] == "login")
+                for _, key in logins[:max(0, len(logins) - 19)]:
+                    del self.challenges[key]
+            elif len(self.challenges) > 200:
                 raise PermissionError("Too many passkey checks in progress. Try again shortly.")
             challenge = b64url(secrets.token_bytes(32))
             self.challenges[challenge] = {"session": session, "purpose": purpose, "action": action,
@@ -380,9 +386,32 @@ class Passkeys:
             return
         if not isinstance(assertion, dict) or not isinstance(assertion.get("response"), dict):
             raise PermissionError("Verify with your passkey (fingerprint) to approve this.")
+        name = self._check_assertion(session, "assert", action, target or "", assertion)
+        self.audit.write("passkey_verified", {}, {"action": action, "target": target, "passkey": name})
+
+    # Sign-in with a passkey instead of an authenticator code.
+
+    def login_available(self) -> bool:
+        return bool(self.settings()["origin"] and self.credentials())
+
+    def login_options(self) -> dict:
+        if not self.login_available():
+            raise ValueError("Passkey sign-in is not set up. Use your authenticator code.")
+        settings = self.settings()
+        return {"challenge": self._challenge("login", "login"), "rpId": settings["rp_id"],
+                "timeout": CHALLENGE_SECONDS * 1000, "userVerification": "required",
+                "allowCredentials": [{"type": "public-key", "id": item["id"]} for item in self.credentials()]}
+
+    def verify_login(self, assertion: dict | None) -> None:
+        if not isinstance(assertion, dict) or not isinstance(assertion.get("response"), dict):
+            raise ValueError("Invalid passkey response.")
+        name = self._check_assertion("login", "login", "", "", assertion)
+        self.audit.write("passkey_sign_in", {}, {"passkey": name})
+
+    def _check_assertion(self, session: str, purpose: str, action: str, target: str, assertion: dict) -> str:
         response = assertion["response"]
         client, client_raw = self._client_data(response.get("clientDataJSON", ""), "webauthn.get")
-        self._consume(str(client.get("challenge", "")), session, "assert", action, target or "")
+        self._consume(str(client.get("challenge", "")), session, purpose, action, target)
         credential_id = assertion.get("id") or assertion.get("rawId")
         with self.lock:
             items = self.credentials()
@@ -403,4 +432,4 @@ class Passkeys:
                     raise PermissionError("Passkey counter went backwards; it may have been cloned.")
             stored["sign_count"], stored["last_used_utc"] = auth["sign_count"], utc_now()
             self.store.write_secure(CREDENTIALS_FILE, items)
-        self.audit.write("passkey_verified", {}, {"action": action, "target": target, "passkey": stored["name"]})
+        return stored["name"]

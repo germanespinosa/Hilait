@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.48** (ntfy for agent token requests),
+*Last reviewed for package version **0.1.49** (passkey sign-in),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -138,7 +138,7 @@ Key wiring facts:
 | Who | Credential | Checked by |
 | --- | --- | --- |
 | Human, before OTP | Admin token (random, encrypted in `admin.token`; printed on `serve`; `--open` passes it via `#token=` fragment) | `AdminAuth.valid` |
-| Human, OTP enabled | 6-digit TOTP → 12 h in-memory session token (SHA-256 kept). Admin token is then **rejected** (403 `otp_required`). Sessions die on restart. 5 bad codes / 5 min → 429. Codes cannot be replayed (`last_step`). | `AdminAuth.verify_login/valid` |
+| Human, OTP enabled | 6-digit TOTP or a registered passkey → 12 h in-memory session token (SHA-256 kept). Admin token is then **rejected** (403 `otp_required`). Sessions die on restart. 5 bad codes / 5 min → 429. Codes cannot be replayed (`last_step`). | `AdminAuth.verify_login/valid` |
 | Agent | 64-hex token; `agents.json` stores SHA-256 hash + encrypted copy | `Store.agent_for_token` |
 | Enrolling agent | Private `claim` secret returned once by `POST /api/agent-enrollment` | `AgentEnrollment.status` |
 
@@ -427,6 +427,11 @@ Admin (Bearer session): `/api/otp` (+ `setup`, `confirm`, `cancel`,
 (download / raw-body upload, never overwrites / delete; paths relative to the
 transfer root), `POST /api/review/settings|models|{id}`,
 `POST /api/review-all`, `POST /api/sudo/{id}/decide`.
+
+Public passkey sign-in: `POST /api/auth/passkey/options`,
+`POST /api/auth/passkey/verify` `{passkey}` → `{session}` (via
+`AdminAuth.passkey_session`, shared rate limit). `GET /api/auth/mode` also
+returns `passkey` and `passkey_origin`.
 
 Passkeys: `GET /api/passkeys`, `PUT /api/passkeys/settings` (OTP code),
 `POST /api/passkeys/register/options` (OTP code), `POST /api/passkeys/register`,

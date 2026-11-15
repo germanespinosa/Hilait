@@ -75,7 +75,11 @@ the configured HTTPS address, signature counters must increase when the
 authenticator keeps one, and each challenge is single-use, expires after two
 minutes, and is bound to the browser session, action, and target. Public keys
 and counters are stored in `passkeys.json` and settings in
-`passkey-settings.json`, both encrypted with the master key. `hilait passkeys
+`passkey-settings.json`, both encrypted with the master key. A registered
+passkey can also replace the authenticator code at sign-in; those
+unauthenticated sign-in challenges are capped (newest 20 kept), cannot be used
+for approval checks (or the reverse), and failures count toward the same
+five-attempts-per-five-minutes limit as codes. `hilait passkeys
 reset` is the offline recovery path; anyone who can run it on the server can
 already read the data directory, so it does not weaken the boundary.
 

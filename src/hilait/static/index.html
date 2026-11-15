@@ -30,8 +30,9 @@
   <div id="otp-login" class="login-shell hidden">
     <form id="otp-login-form" class="login-card">
       <div class="login-top"><img src="/static/logo.png?v={{VERSION}}" alt="" width="48" height="48"><button class="icon theme-toggle" data-theme-toggle type="button" aria-label="Switch color mode"><svg viewBox="0 0 24 24" aria-hidden="true"><g class="theme-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></g><path class="theme-moon" d="M20.5 15.2A8.5 8.5 0 0 1 8.8 3.5 8.5 8.5 0 1 0 20.5 15.2Z"/></svg></button></div>
-      <h1>Authenticator code</h1>
-      <p>Enter the code from your authenticator app.</p>
+      <h1>Sign in</h1>
+      <button type="button" id="passkey-login" class="primary hidden">Sign in with passkey</button>
+      <p id="otp-login-hint">Enter the code from your authenticator app.</p>
       <label>Six-digit code<input id="otp-login-code" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
       <button type="submit" class="primary">Continue</button>
       <p id="otp-login-error" class="error" role="alert"></p>

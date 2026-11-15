@@ -278,3 +278,4 @@ a { color: var(--accent); }
 .transfer-link:hover { background: var(--button-hover); }
 .transfer-path .transfer-link { padding: 4px 6px; }
 .transfer-upload { display: inline-flex; align-items: center; cursor: pointer; border: 1px solid var(--line); border-radius: 8px; }
+.login-card #passkey-login + p { margin-top: 14px; }

@@ -239,3 +239,54 @@ async def test_api_requires_passkey_for_approvals(tmp_path, activate_otp):
             await runtime.sessions.close(session_id)
         process.terminate()
         await process.wait()
+
+
+async def test_passkey_sign_in(tmp_path, activate_otp):
+    import httpx
+
+    from hilait.server import create_app
+
+    app = create_app(tmp_path / "data")
+    runtime = app.state.runtime
+    activate_otp(runtime)
+    runtime.passkeys.update_settings(ORIGIN, "off")
+    authenticator = SoftAuthenticator(ORIGIN, RP_ID)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
+        assert (await client.get("/api/auth/mode")).json() == {"otp_enabled": True, "passkey": False, "passkey_origin": ""}
+        assert (await client.post("/api/auth/passkey/options")).status_code == 400
+        register(passkeys=runtime.passkeys, authenticator=authenticator)
+        assert (await client.get("/api/auth/mode")).json() == {"otp_enabled": True, "passkey": True, "passkey_origin": ORIGIN}
+
+        options = (await client.post("/api/auth/passkey/options")).json()
+        signed = await client.post("/api/auth/passkey/verify", json={"passkey": authenticator.get(options)})
+        assert signed.status_code == 200, signed.text
+        token = signed.json()["session"]
+        state = await client.get("/api/state", headers={"Authorization": "Bearer " + token})
+        assert state.status_code == 200
+        # The session token is a normal browser session; a replayed assertion is refused.
+        replay = await client.post("/api/auth/passkey/verify", json={"passkey": authenticator.get(options)})
+        assert replay.status_code == 403
+        # A step-up challenge cannot be used to sign in, and vice versa.
+        runtime.passkeys.update_settings(None, "all")
+        step = runtime.passkeys.assertion_options("s1", "grant_approve", "g1", elevated=False)["options"]
+        crossed = await client.post("/api/auth/passkey/verify", json={"passkey": authenticator.get(step)})
+        assert crossed.status_code == 403
+        for _ in range(4):
+            options = (await client.post("/api/auth/passkey/options")).json()
+            await client.post("/api/auth/passkey/verify", json={"passkey": authenticator.get(options, tamper=True)})
+        limited = await client.post("/api/auth/passkey/verify", json={"passkey": {"response": {}}})
+        assert limited.status_code == 429
+    assert sum(1 for item in runtime.passkeys.challenges.values() if item["purpose"] == "login") <= 20
+    kinds = [record["kind"] for record in runtime.audit.records()]
+    assert "passkey_sign_in" in kinds
+
+
+def test_sign_in_challenges_are_capped(passkeys):
+    passkeys.update_settings(ORIGIN, "off")
+    register(passkeys, SoftAuthenticator(ORIGIN, RP_ID))
+    for _ in range(100):
+        passkeys.login_options()
+    assert sum(1 for item in passkeys.challenges.values() if item["purpose"] == "login") == 20
+    # Step-up checks are unaffected by sign-in floods.
+    passkeys.update_settings(None, "all")
+    assert passkeys.assertion_options("s1", "grant_approve", "g1", elevated=False)["required"]

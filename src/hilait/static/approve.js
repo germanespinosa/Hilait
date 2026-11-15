@@ -29,9 +29,11 @@
   }
 
   async function showLogin() {
-    let otpEnabled = false;
-    try { otpEnabled = (await api('/api/auth/mode')).otp_enabled; } catch (error) { $('#login-error').textContent = error.message; }
-    $('#login-description').textContent = otpEnabled ? 'Enter your six-digit authenticator code to review this request.' : 'Enter the admin token printed by hilait serve to review this request.';
+    let otpEnabled = false, mode = null;
+    try { mode = await api('/api/auth/mode'); otpEnabled = mode.otp_enabled; } catch (error) { $('#login-error').textContent = error.message; }
+    const passkey = otpEnabled && window.HilaitPasskey.offerSignIn(mode);
+    $('#passkey-login').classList.toggle('hidden', !passkey);
+    $('#login-description').textContent = passkey ? 'Or enter your six-digit authenticator code to review this request.' : otpEnabled ? 'Enter your six-digit authenticator code to review this request.' : 'Enter the admin token printed by hilait serve to review this request.';
     $('#login-label').textContent = otpEnabled ? 'Authenticator code' : 'Admin token';
     const input = $('#login-value');
     input.type = otpEnabled ? 'text' : 'password';
@@ -41,8 +43,19 @@
     input.maxLength = otpEnabled ? 6 : 256;
     $('#login-form').dataset.otp = otpEnabled ? 'true' : 'false';
     show('login');
-    input.focus();
+    (passkey ? $('#passkey-login') : input).focus();
   }
+
+  $('#passkey-login').onclick = async () => {
+    $('#login-error').textContent = '';
+    $('#passkey-login').disabled = true;
+    try {
+      token = await window.HilaitPasskey.signIn(rawApi);
+      sessionStorage.setItem('hilait-token', token);
+      await load(true);
+    } catch (error) { $('#login-error').textContent = error.message; }
+    finally { $('#passkey-login').disabled = false; }
+  };
 
   function showGrant(grant) {
     show('request');

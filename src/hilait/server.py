@@ -316,7 +316,21 @@ def create_app(root: Path | None = None) -> FastAPI:
     @app.get("/api/auth/mode")
     async def auth_mode(response: Response):
         response.headers["Cache-Control"] = "no-store"
-        return {"otp_enabled": runtime.auth.enabled()}
+        available = runtime.auth.enabled() and runtime.passkeys.login_available()
+        return {"otp_enabled": runtime.auth.enabled(), "passkey": available,
+                "passkey_origin": runtime.passkeys.settings()["origin"] if available else ""}
+
+    @app.post("/api/auth/passkey/options")
+    async def passkey_login_options(response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        if not runtime.auth.enabled():
+            raise ValueError("OTP is not configured.")
+        return runtime.passkeys.login_options()
+
+    @app.post("/api/auth/passkey/verify")
+    async def passkey_login(payload: dict, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        return {"session": runtime.auth.passkey_session(lambda: runtime.passkeys.verify_login(payload.get("passkey")))}
 
     @app.post("/api/auth/verify")
     async def verify_admin_otp(payload: dict, response: Response):

@@ -27,7 +27,7 @@ async def test_optional_otp_setup_login_and_disable(tmp_path, monkeypatch):
     runtime = app.state.runtime
     admin = {"Authorization": "Bearer " + runtime.store.admin_token}
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
-        assert (await client.get("/api/auth/mode")).json() == {"otp_enabled": False}
+        assert (await client.get("/api/auth/mode")).json() == {"otp_enabled": False, "passkey": False, "passkey_origin": ""}
         assert (await client.get("/api/state", headers=admin)).status_code == 200
         assert (await client.get("/api/otp", headers=admin)).json() == {"enabled": False, "pending": False}
         setup_response = await client.post("/api/otp/setup", headers=admin, json={})
@@ -41,7 +41,7 @@ async def test_optional_otp_setup_login_and_disable(tmp_path, monkeypatch):
         confirmed = await client.post("/api/otp/confirm", headers=admin, json={"code": code})
         assert confirmed.status_code == 200, confirmed.text
         session = confirmed.json()["session"]
-        assert (await client.get("/api/auth/mode")).json() == {"otp_enabled": True}
+        assert (await client.get("/api/auth/mode")).json() == {"otp_enabled": True, "passkey": False, "passkey_origin": ""}
         verified = {"Authorization": "Bearer " + session}
         assert (await client.get("/api/state", headers=verified)).status_code == 200
         denied = await client.get("/api/state", headers=admin)

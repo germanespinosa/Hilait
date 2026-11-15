@@ -62,5 +62,16 @@
     return {...(body || {}), passkey: await assert(challenge.options)};
   }
 
-  window.HilaitPasskey = {attach, create, supported};
+  // Sign in with a passkey instead of an authenticator code. Returns a session token.
+  async function signIn(call) {
+    const options = await call('/api/auth/passkey/options', 'POST', {});
+    return (await call('/api/auth/passkey/verify', 'POST', {passkey: await assert(options)})).session;
+  }
+
+  // Show a passkey sign-in button only where it can work: passkeys exist and this page is at their address.
+  function offerSignIn(mode) {
+    return Boolean(mode?.passkey && mode.passkey_origin === location.origin && supported());
+  }
+
+  window.HilaitPasskey = {attach, create, supported, signIn, offerSignIn};
 })();

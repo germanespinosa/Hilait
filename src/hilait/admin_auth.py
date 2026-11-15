@@ -106,7 +106,7 @@ class AdminAuth:
         while self.failed and self.failed[0] <= now - ATTEMPT_WINDOW_SECONDS:
             self.failed.popleft()
         if len(self.failed) >= MAX_FAILED_ATTEMPTS:
-            raise RateLimitError("Too many incorrect codes. Try again in a few minutes.")
+            raise RateLimitError("Too many failed sign-in attempts. Try again in a few minutes.")
 
     def _check_code(self, seed: str, code: str, last_step: int) -> int:
         self._check_rate()
@@ -130,6 +130,20 @@ class AdminAuth:
             step = self._check_code(settings["seed"], code, settings.get("last_step", -1))
             settings["last_step"] = step
             self.store.write_secure("admin-otp.json", settings)
+            return self._session()
+
+    def passkey_session(self, check) -> str:
+        """Create a browser session after `check()` verifies a passkey (same rate limit as codes)."""
+        with self.lock:
+            if not self._settings().get("seed"):
+                raise ValueError("OTP is not configured.")
+            self._check_rate()
+            try:
+                check()
+            except (PermissionError, ValueError):
+                self.failed.append(time.time())
+                raise
+            self.failed.clear()
             return self._session()
 
     def verify_code(self, code: str) -> None:

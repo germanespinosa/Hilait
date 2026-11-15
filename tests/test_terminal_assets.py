@@ -15,3 +15,5 @@ def test_strict_csp_keeps_xterm_styles_through_constructable_sheets():
     assert "mirrorInjectedStyles(element)" in source
     bundle = (STATIC / "vendor" / "xterm.js").read_text(encoding="utf-8")
     assert "adoptedStyleSheets" in bundle, "Rebuild the terminal bundle with `npm run build`."
+    # Truecolor/contrast colours must use CSSOM, not blocked style attributes.
+    assert 'setAttribute("style"' not in bundle, "Rebuild with build.mjs's csp-safe-xterm patch."

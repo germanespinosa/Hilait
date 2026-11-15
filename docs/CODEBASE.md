@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.45** (terminal CSP style fix),
+*Last reviewed for package version **0.1.46** (terminal truecolor fix),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -450,6 +450,10 @@ model.
   not govern. Without it, text drifts from the cell grid (the custom
   `.terminal-caret` overlay looks offset) and selections are invisible. The
   CSP console warnings about those `<style>` elements are expected.
+  `build.mjs` also patches xterm's `_addStyle` (truecolor and
+  minimum-contrast colours) from `setAttribute('style')`, which the CSP
+  blocks, to `element.style.cssText`; the build fails if xterm changes that
+  helper.
   `tests/test_terminal_assets.py` guards this.
 * `terminal-entry.js` is the only bundled source (xterm 6 + fit, search,
   unicode11, unicode-graphemes). After editing it run `npm ci && npm run

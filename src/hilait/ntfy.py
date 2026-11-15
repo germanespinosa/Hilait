@@ -97,6 +97,25 @@ class NtfyNotifier:
             self.audit.write("notification_failed", grant.context(),
                              {"channel": "ntfy", "error": type(exc).__name__})
 
+    async def notify_agent_token(self, request: dict) -> None:
+        """Tell the administrator an agent asked for a token (approved in Settings → Agent Access)."""
+        config = self.settings()
+        if not config.get("enabled"):
+            return
+        reason = request["reason"][:180].strip() + ("…" if len(request["reason"]) > 180 else "")
+        payload = {"topic": config["topic"], "title": f"Hilait: {request['name']} asks for an agent token",
+                   "message": f"{reason}\nExpires in 10 minutes. Machines stay off until you choose them.",
+                   "priority": 4,
+                   "actions": [{"action": "view", "label": "Review in Agent Access",
+                                "url": config["hilait_url"] + "/#settings=agents"}]}
+        context = {"enrollment_id": request["id"]}
+        try:
+            await self._post(config, payload)
+            self.audit.write("notification_sent", context, {"channel": "ntfy", "kind": "agent_token_request"})
+        except (httpx.HTTPError, ValueError) as exc:
+            self.audit.write("notification_failed", context,
+                             {"channel": "ntfy", "kind": "agent_token_request", "error": type(exc).__name__})
+
     async def notify_review(self, grant_id: str, result: dict, thresholds: dict) -> bool:
         alerted = self.store.read_secure("review-alerts.enc", {})
         previous = alerted.get(grant_id, {})

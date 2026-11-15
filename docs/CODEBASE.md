@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.47** (passkey approvals),
+*Last reviewed for package version **0.1.48** (ntfy for agent token requests),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -28,7 +28,9 @@ Paramiko) with a vanilla-JS browser UI. One server process:
 4. Records everything in an encrypted, hash-chained audit log and can have an
    LLM score each agent session for safety / purpose alignment / correctness,
    optionally auto-revoking access on low scores.
-5. Optionally pushes approval requests and review alerts to a phone via ntfy.
+5. Optionally pushes access requests, agent token requests, and review
+   alerts to a phone via ntfy. Token-request links use `/#settings=agents`,
+   which app.js opens after sign-in.
 
 It is the cross-platform successor of the Windows-only
 [HilaitWin](https://github.com/germanespinosa/HilaitWin).

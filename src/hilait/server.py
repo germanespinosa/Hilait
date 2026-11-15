@@ -389,6 +389,7 @@ def create_app(root: Path | None = None) -> FastAPI:
                                            str(payload.get("reason", "")),
                                            request.client.host if request.client else "unknown")
         runtime.agents._notify({"type": "agent_token_request"})
+        asyncio.create_task(runtime.ntfy.notify_agent_token(result))
         return result
 
     @app.post("/api/agent-enrollment/{request_id}/status")

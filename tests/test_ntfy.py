@@ -75,3 +75,31 @@ async def test_expired_request_cannot_be_approved_or_denied(tmp_path, activate_o
         assert (await client.get(f"/api/grants/{grant.id}", headers=admin)).json()["state"] == "Expired"
         assert (await client.post(f"/api/grants/{grant.id}/approve", headers=admin, json={})).status_code == 400
         assert (await client.post(f"/api/grants/{grant.id}/reject", headers=admin, json={})).status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_agent_token_request_sends_notification_without_claim(tmp_path, monkeypatch, activate_otp):
+    app = create_app(tmp_path)
+    runtime = app.state.runtime
+    activate_otp(runtime)
+    runtime.ntfy.save({"enabled": True, "server_url": "https://ntfy.example", "topic": "hilait-private",
+                       "hilait_url": "https://hilait.example"})
+    sent, delivered = [], asyncio.Event()
+
+    async def capture(config, payload):
+        sent.append(payload)
+        delivered.set()
+
+    monkeypatch.setattr(runtime.ntfy, "_post", capture)
+    reason = "Testing the new approval flow with the administrator, then requesting one machine for diagnostics."
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.post("/api/agent-enrollment", json={"name": "Claude test", "reason": reason})
+        assert response.status_code == 200, response.text
+        await asyncio.wait_for(delivered.wait(), 2)
+    payload = sent[0]
+    assert payload["topic"] == "hilait-private"
+    assert "Claude test" in payload["title"] and reason in payload["message"]
+    assert payload["actions"] == [{"action": "view", "label": "Review in Agent Access",
+                                   "url": "https://hilait.example/#settings=agents"}]
+    assert response.json()["claim"] not in str(payload)
+    assert any(record["kind"] == "notification_sent" for record in runtime.audit.records())

@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.46** (terminal truecolor fix),
+*Last reviewed for package version **0.1.47** (passkey approvals),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -55,6 +55,7 @@ src/hilait/
   admin_auth.py    TOTP (RFC 6238) login, browser sessions, OTP seed lifecycle, rate limiting
   sessions.py      SSH sessions (Paramiko PTY), host-key trust policy, output buffer, screen snapshots
   files.py         Audited SFTP operations and collision-safe copy/upload/download
+  passkeys.py      WebAuthn step-up for approvals: minimal CBOR/authData parsing, ES256/RS256/Ed25519 verification, policy
   transfers.py     Hilait-managed server transfer folders (root setting, per agent/machine/tier folders, admin browse API)
   agents.py        Grants, tiers (legacy/normal/elevated), standing authorizations, idle timeout
   enrollment.py    Remote agent self-enrollment requests (claim-secret protected)
@@ -68,6 +69,7 @@ src/hilait/
     app.css, theme.css, theme.js   Styling and light/dark mode (theme.js runs before paint)
     terminal-entry.js  Source for vendor/xterm.js bundle; exposes window.HilaitTerminal(+Appearance)
     terminal.css   Terminal pane styling
+    passkey.js     Shared WebAuthn helper: maps approval API calls to step-up actions, runs navigator.credentials
     approve.html/.js/.css  Mobile approval page opened from ntfy links (/approve/{grant_id})
     vendor/        Built xterm.js + xterm.css (committed; rebuilt with `npm run build`)
     fonts/         JetBrains Mono woff2 subsets (copied by build.mjs)
@@ -182,6 +184,8 @@ Master key: Fernet key from `HILAIT_MASTER_KEY_FILE`, else
 | `activity-settings.json` | plaintext | — | Activity folder + `retention_days` |
 | `activity-records.current` | — | — | 32-hex active audit "generation" |
 | `activity-records/` (movable) | `Audit` | master | Audit records (see §9) |
+| `passkeys.json` | `Passkeys` | master | Registered passkeys: id, name, alg, SPKI public key, sign count |
+| `passkey-settings.json` | `Passkeys` | master | `origin`, `rp_id`, `policy` (off/elevated/all) |
 | `transfer-settings.json` | `TransferArea` | plaintext | Optional transfer root override |
 | `lan.crt`, `lan.key` | `tls.py` | key PKCS#8-encrypted with HMAC(master, "Hilait LAN TLS private key v1") | LAN HTTPS identity |
 
@@ -422,6 +426,11 @@ Admin (Bearer session): `/api/otp` (+ `setup`, `confirm`, `cancel`,
 transfer root), `POST /api/review/settings|models|{id}`,
 `POST /api/review-all`, `POST /api/sudo/{id}/decide`.
 
+Passkeys: `GET /api/passkeys`, `PUT /api/passkeys/settings` (OTP code),
+`POST /api/passkeys/register/options` (OTP code), `POST /api/passkeys/register`,
+`POST /api/passkeys/{id}/delete` (OTP code), `POST /api/passkeys/challenge`
+`{action, target}` → `{required, options}`.
+
 Agent (Bearer agent token): `POST /agent/{tool}`.
 
 WebSockets: `/ws/events` (state snapshot then events), `/ws/terminal/{id}`
@@ -526,3 +535,9 @@ hilait serve --open          # local run on http://127.0.0.1:8765
 11. Server-side transfer locations are chosen by Hilait, never by an agent
     or a typed approval field, and are separate per agent × machine × tier
     (so they cannot bridge tiers that `copy` keeps apart).
+12. Actions that grant or widen access go through `require_passkey()` in
+    server.py (grant approve, sudo approve, authorization create/extend,
+    file-access widening, agent token approve). The browser side is
+    automatic: `api()` in app.js/approve.js routes through
+    `HilaitPasskey.attach()`, whose `stepFor()` must list every such
+    endpoint. Narrowing actions (reject, pause, revoke) never require one.

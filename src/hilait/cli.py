@@ -25,6 +25,9 @@ def main() -> None:
     otp = sub.add_parser("otp", help="manage the local web authenticator")
     otp_sub = otp.add_subparsers(dest="otp_command", required=True)
     otp_sub.add_parser("reset", help="remove the OTP seed from this server account (stop Hilait first)")
+    passkeys = sub.add_parser("passkeys", help="manage passkey (fingerprint) approval checks")
+    passkeys_sub = passkeys.add_subparsers(dest="passkeys_command", required=True)
+    passkeys_sub.add_parser("reset", help="forget all passkeys and stop requiring them (stop Hilait first)")
     args = parser.parse_args()
     if args.command == "mcp":
         from .mcp_server import build_mcp
@@ -36,6 +39,13 @@ def main() -> None:
         store.discard_connections()
         store.write_secure("admin-otp.json", {})
         print("OTP reset. Saved connections and machine authorizations were deleted. Restart Hilait and sign in with the admin token.")
+        return
+    if args.command == "passkeys":
+        from .passkeys import Passkeys
+        from .storage import Audit, Store
+        store = Store()
+        Passkeys(store, Audit(store)).reset()
+        print("Passkeys reset. Approvals no longer require a passkey. Restart Hilait and add a new passkey in Settings → Security.")
         return
     if args.host not in {"127.0.0.1", "::1", "localhost"}:
         parser.error("For network access, use --lan to enable HTTPS. --host is for loopback only.")

@@ -65,6 +65,20 @@ Agent-side MCP tokens are different: an agent client that needs to reconnect
 unattended must retain its token on **that client**. Hilait does not control
 the security of another computer's MCP configuration or client token cache.
 
+## Passkey approvals
+
+Optional passkey step-up (Settings → Passkeys) adds a second, phishing-resistant
+check on actions that grant or widen agent access. Hilait verifies WebAuthn
+itself with `cryptography`: no attestation is requested, user verification
+(fingerprint, face, or device PIN) is required, the origin and RP ID must match
+the configured HTTPS address, signature counters must increase when the
+authenticator keeps one, and each challenge is single-use, expires after two
+minutes, and is bound to the browser session, action, and target. Public keys
+and counters are stored in `passkeys.json` and settings in
+`passkey-settings.json`, both encrypted with the master key. `hilait passkeys
+reset` is the offline recovery path; anyone who can run it on the server can
+already read the data directory, so it does not weaken the boundary.
+
 ## Where the master key lives
 
 In the recommended Linux service, the original random `master.key` is held at

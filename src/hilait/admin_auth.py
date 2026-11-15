@@ -132,6 +132,15 @@ class AdminAuth:
             self.store.write_secure("admin-otp.json", settings)
             return self._session()
 
+    def verify_code(self, code: str) -> None:
+        """Confirm a current OTP code for a sensitive change, without creating a session."""
+        with self.lock:
+            settings = self._settings()
+            if not settings.get("seed"):
+                raise PermissionError("Enable OTP first.")
+            settings["last_step"] = self._check_code(settings["seed"], str(code or ""), settings.get("last_step", -1))
+            self.store.write_secure("admin-otp.json", settings)
+
     def begin_setup(self, current_code: str = "") -> dict:
         with self.lock:
             settings = self._settings()

@@ -6,6 +6,10 @@
   let pendingHost = null;
 
   async function api(path, method = 'GET', body) {
+    return rawApi(path, method, await window.HilaitPasskey.attach(path, method, body, rawApi));
+  }
+
+  async function rawApi(path, method = 'GET', body) {
     const headers = {'Accept':'application/json'};
     if (!path.startsWith('/api/auth/')) headers.Authorization = 'Bearer ' + token;
     if (body !== undefined) headers['Content-Type'] = 'application/json';

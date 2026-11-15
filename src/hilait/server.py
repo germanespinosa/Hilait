@@ -28,6 +28,7 @@ from .ntfy import NtfyNotifier
 from .review import ENDPOINTS, Reviewer
 from .sessions import HostKeyApprovalNeeded, SessionManager
 from .storage import Audit, Store
+from .passkeys import Passkeys
 from .transfers import TransferArea
 
 STATIC = Path(__file__).parent / "static"
@@ -57,6 +58,7 @@ class Runtime:
         self.sessions = SessionManager(self.store, self.audit)
         self.files = FileService(self.sessions, self.audit)
         self.transfers = TransferArea(self.store, self.audit)
+        self.passkeys = Passkeys(self.store, self.audit)
         self.agents = AgentRuntime(self.store, self.audit, self.sessions, self.files, self.transfers)
         self.enrollment = AgentEnrollment(self.store, self.audit)
         self.ntfy = NtfyNotifier(self.store, self.audit)
@@ -222,6 +224,37 @@ def create_app(root: Path | None = None) -> FastAPI:
         else:
             raise HTTPException(401, "Enter the Hilait admin token to use this local server.")
 
+    def admin_session(authorization: str | None = Header(default=None)) -> str:
+        admin(authorization)
+        return runtime.passkeys.session_key(authorization[7:])
+
+    def step_up_target(action: str, target: str) -> tuple[str, bool]:
+        """Return the canonical target and whether the action is elevated."""
+        if action == "grant_approve":
+            return target, runtime.agents.pending(target).privilege == "elevated"
+        if action == "sudo_approve":
+            if target not in runtime.sudo_requests:
+                raise KeyError("Sudo request not found.")
+            return target, True
+        if action in {"authorization_extend", "authorization_file_access"}:
+            item = next((a for a in runtime.agents.authorizations() if a["id"] == target), None)
+            if item is None:
+                raise KeyError("Authorization not found.")
+            return target, item.get("privilege") == "elevated"
+        if action == "authorization_create":
+            agent_id, _, rest = target.partition("/")
+            profile_id, _, privilege = rest.partition("/")
+            if not agent_id or not profile_id:
+                raise ValueError("Choose the agent and machine first.")
+            return f"{agent_id}/{profile_id}/{privilege}", privilege == "elevated"
+        if action == "agent_token_approve":
+            return target, False
+        raise ValueError("Unknown passkey action.")
+
+    def require_passkey(session: str, action: str, target: str, payload: dict) -> None:
+        target, elevated = step_up_target(action, target)
+        runtime.passkeys.verify(session, action, target, payload.get("passkey"), elevated=elevated)
+
     def agent(authorization: str | None = Header(default=None)) -> dict:
         if not authorization or not authorization.startswith("Bearer "):
             raise HTTPException(401, "Registered agent token required.")
@@ -363,10 +396,11 @@ def create_app(root: Path | None = None) -> FastAPI:
         response.headers["Cache-Control"] = "no-store"
         return runtime.enrollment.status(str(request_id), str(payload.get("claim", "")))
 
-    @app.post("/api/agent-enrollment/{request_id}/approve", dependencies=[Depends(admin)])
-    async def approve_agent_token(request_id: uuid.UUID, payload: dict):
+    @app.post("/api/agent-enrollment/{request_id}/approve")
+    async def approve_agent_token(request_id: uuid.UUID, payload: dict, session: str = Depends(admin_session)):
         if not runtime.auth.enabled():
             raise PermissionError("Sign in with OTP to approve agent tokens.")
+        require_passkey(session, "agent_token_approve", str(request_id), payload)
         selected = set(payload.get("connection_ids", []))
         if not selected <= {profile["id"] for profile in runtime.store.profiles()}:
             raise ValueError("Unknown connection in permissions.")
@@ -655,25 +689,35 @@ def create_app(root: Path | None = None) -> FastAPI:
         runtime.store.save_profiles(profiles)
         return {"deleted": agent_id}
 
-    @app.post("/api/authorizations", dependencies=[Depends(admin)])
-    async def create_authorization(payload: dict):
+    @app.post("/api/authorizations")
+    async def create_authorization(payload: dict, session: str = Depends(admin_session)):
         if payload.get("privilege") == "elevated" and payload.get("elevated_confirmed") is not True:
             raise ValueError("Explicitly confirm elevated standing authorization.")
+        require_passkey(session, "authorization_create",
+                        f"{payload.get('agent_id', '')}/{payload.get('profile_id', '')}/{payload.get('privilege') or ''}",
+                        payload)
         return runtime.agents.create_authorization(payload["agent_id"], payload["profile_id"],
                                                    None if payload.get("permanent") is True else float(payload["hours"]),
                                                    payload.get("file_access", "None"),
                                                    permanent=payload.get("permanent") is True,
                                                    privilege=payload.get("privilege"))
 
-    @app.post("/api/authorizations/{authorization_id}/extend", dependencies=[Depends(admin)])
-    async def extend_authorization(authorization_id: str, payload: dict):
+    @app.post("/api/authorizations/{authorization_id}/extend")
+    async def extend_authorization(authorization_id: str, payload: dict, session: str = Depends(admin_session)):
+        require_passkey(session, "authorization_extend", authorization_id, payload)
         permanent = payload.get("permanent") is True
         hours = float(payload["hours"]) if "hours" in payload else None
         return runtime.agents.extend_authorization(authorization_id, hours, permanent=permanent,
                                                    elevated_confirmed=payload.get("elevated_confirmed") is True)
 
-    @app.post("/api/authorizations/{authorization_id}/file-access", dependencies=[Depends(admin)])
-    async def change_authorization_file_access(authorization_id: str, payload: dict):
+    @app.post("/api/authorizations/{authorization_id}/file-access")
+    async def change_authorization_file_access(authorization_id: str, payload: dict,
+                                               session: str = Depends(admin_session)):
+        item = next((a for a in runtime.agents.authorizations() if a["id"] == authorization_id), None)
+        scopes = ["None", "Remote", "LocalTransfers"]
+        if item and payload.get("file_access") in scopes and \
+                scopes.index(payload["file_access"]) > scopes.index(item.get("file_access", "None")):
+            require_passkey(session, "authorization_file_access", authorization_id, payload)
         return runtime.agents.change_authorization_file_access(authorization_id, payload.get("file_access"))
 
     @app.post("/api/authorizations/{authorization_id}/revoke", dependencies=[Depends(admin)])
@@ -696,12 +740,13 @@ def create_app(root: Path | None = None) -> FastAPI:
         response.headers["Cache-Control"] = "no-store"
         return runtime.agents.pending(grant_id).public()
 
-    @app.post("/api/grants/{grant_id}/{action}", dependencies=[Depends(admin)])
-    async def grant_action(grant_id: str, action: str, payload: dict):
+    @app.post("/api/grants/{grant_id}/{action}")
+    async def grant_action(grant_id: str, action: str, payload: dict, session: str = Depends(admin_session)):
         grant = runtime.agents.pending(grant_id)
         if action == "approve":
             if grant.privilege == "elevated" and payload.get("elevated_confirmed") is not True:
                 raise ValueError("Explicitly confirm this elevated SSH connection.")
+            require_passkey(session, "grant_approve", grant_id, payload)
             return (await runtime.agents.approve(grant_id, duration_hours=payload.get("duration_hours"),
                         secret=payload.get("secret"), permanent=payload.get("permanent") is True)).public()
         if action == "reject":
@@ -743,6 +788,41 @@ def create_app(root: Path | None = None) -> FastAPI:
         async with activity_lock:
             return await asyncio.to_thread(runtime.save_activity_settings,
                                            payload.get("directory"), payload.get("retention_days"), set(reviewing))
+
+    @app.get("/api/passkeys", dependencies=[Depends(admin)])
+    async def passkey_status():
+        return runtime.passkeys.status()
+
+    @app.put("/api/passkeys/settings", dependencies=[Depends(admin)])
+    async def passkey_settings(payload: dict):
+        runtime.auth.verify_code(payload.get("code", ""))
+        return runtime.passkeys.update_settings(payload.get("origin"), payload.get("policy", "off"))
+
+    @app.post("/api/passkeys/register/options")
+    async def passkey_registration_options(payload: dict, session: str = Depends(admin_session)):
+        runtime.auth.verify_code(payload.get("code", ""))
+        return runtime.passkeys.registration_options(session, payload.get("name", ""))
+
+    @app.post("/api/passkeys/register")
+    async def passkey_register(payload: dict, session: str = Depends(admin_session)):
+        return runtime.passkeys.register(session, payload.get("credential") or {})
+
+    @app.post("/api/passkeys/{credential_id}/delete", dependencies=[Depends(admin)])
+    async def passkey_delete(credential_id: str, payload: dict):
+        runtime.auth.verify_code(payload.get("code", ""))
+        return runtime.passkeys.delete(credential_id)
+
+    @app.post("/api/passkeys/challenge")
+    async def passkey_challenge(payload: dict, session: str = Depends(admin_session)):
+        action = payload.get("action", "")
+        target, elevated = step_up_target(action, str(payload.get("target", "")))
+        if action == "authorization_file_access":
+            item = next(a for a in runtime.agents.authorizations() if a["id"] == target)
+            scopes = ["None", "Remote", "LocalTransfers"]
+            wanted = payload.get("file_access")
+            if wanted not in scopes or scopes.index(wanted) <= scopes.index(item.get("file_access", "None")):
+                return {"required": False}
+        return runtime.passkeys.assertion_options(session, action, target, elevated=elevated)
 
     @app.get("/api/transfers/settings", dependencies=[Depends(admin)])
     async def transfer_settings():
@@ -828,11 +908,13 @@ def create_app(root: Path | None = None) -> FastAPI:
         asyncio.create_task(task())
         return {"started": True}
 
-    @app.post("/api/sudo/{request_id}/decide", dependencies=[Depends(admin)])
-    async def sudo_decide(request_id: str, payload: dict):
+    @app.post("/api/sudo/{request_id}/decide")
+    async def sudo_decide(request_id: str, payload: dict, session: str = Depends(admin_session)):
         pending = runtime.sudo_requests.get(request_id)
         if not pending:
             raise KeyError("Sudo request not found.")
+        if payload.get("approved"):
+            require_passkey(session, "sudo_approve", request_id, payload)
         _, future = pending
         if not future.done():
             future.set_result({"approved": bool(payload.get("approved")), "password": payload.get("password", "")})

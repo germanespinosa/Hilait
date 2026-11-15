@@ -60,6 +60,16 @@ When an agent requests access without a matching authorization, Hilait sends the
 
 The package includes its terminal JavaScript and CSS. Node.js is needed only when rebuilding those assets from source.
 
+### Fingerprint approvals with passkeys
+
+Hilait can require a passkey, such as your phone's or computer's fingerprint, face unlock, or device PIN, before it grants or widens agent access. Open **Settings → Passkeys**:
+
+1. Enter the HTTPS address you open Hilait at, such as `https://hilait.example.com` (include the port if you use one), and save with a current authenticator code. Browsers allow passkeys only at a domain name with a trusted certificate, not at an IP address or behind a certificate warning, so use a reverse proxy or another trusted HTTPS front end for that name.
+2. Open Hilait at that address on each device you will approve from, then choose **Add passkey on this device** and confirm with your fingerprint. Passkeys saved to Google Password Manager or iCloud Keychain also work on your other signed-in devices.
+3. Choose when to require one: **Elevated access and sudo approvals**, or **Every approval**.
+
+When required, approving a request (in the workspace or on the phone page), approving sudo, creating or extending a standing authorization, widening its file access, or approving an agent token prompts for the passkey. Each check is tied to that one action and request, works once, and expires after two minutes. Rejecting, pausing, revoking, and taking over never ask. Changing settings or removing a passkey needs an authenticator code. If you lose every passkey, stop Hilait and run `hilait passkeys reset`; it forgets all passkeys and turns the requirement off. Set the ntfy **Hilait URL** to the same address so notification links open where your passkey works.
+
 ## Use the workspace
 
 Create a saved machine with a display name, host, port, and SSH username. Under **Authentication & access**, choose **Username and password** or **Username and private key** for each configured SSH account. A private key path refers to a file readable by the Hilait server account; the browser does not upload the key. Saved passwords and key passphrases are encrypted locally. Switching methods clears the previously saved login secret. Hilait verifies the server's SHA-256 host-key fingerprint *before* sending SSH credentials. Compare a new or changed fingerprint with a trusted source, then explicitly trust it. You can keep multiple independent SSH terminals to the same machine; each agent purpose gets its own session.

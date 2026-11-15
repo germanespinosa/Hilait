@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.50** (security hardening),
+*Last reviewed for package version **0.1.51** (responsive UI and design tokens),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -454,6 +454,20 @@ model.
 
 ## 12. Front end
 
+* **Design tokens** live in `theme.css`: `--font-sans` (bundled Inter,
+  `Hilait Sans`) and `--font-mono` (bundled JetBrains Mono), type scale
+  `--text-*`, radii `--radius-*`, control heights `--control`/`--control-sm`
+  (44/40 px on coarse pointers), z-layers `--z-*`, and per-theme colours
+  including `--line-strong` (≥3:1 control borders) and `--warning*`. Use
+  tokens instead of literal values when adding styles.
+* **Responsive layout** (app.css) uses grid areas: desktop
+  `machines | sessions | main`; ≤1100 px two columns with sessions under
+  connections; ≤700 px `#workspace[data-view]` is `list`, `session`, or
+  `welcome` (set in `render()`), with `#back-to-list` and session chips.
+  Dialogs are bottom sheets on phones; `openModal(markup, narrow, 'tall')`
+  gives Settings/logs a fixed height. Inputs are 16 px on touch screens so
+  iOS Safari does not zoom. Pages use `viewport-fit=cover` and
+  `env(safe-area-inset-*)`.
 * No framework and no bundler for app code: `app.js` is one IIFE using a
   `$()` helper, `api(path, method, body)` (adds the Bearer token, throws
   with server `error`/`detail`), `escaped()` for HTML interpolation, and

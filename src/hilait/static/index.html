@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <link rel="alternate" type="application/json" href="/.well-known/hilait" title="Agent setup">
   <meta name="color-scheme" content="light dark">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
@@ -62,7 +62,7 @@
       <div id="welcome" class="welcome"><h1 id="welcome-title">Double-click a machine to connect</h1><p id="welcome-copy" class="hidden">Save a machine to start a terminal session.</p><button id="welcome-new" class="primary hidden">New connection</button></div>
       <div id="session-view" class="session-view hidden">
         <div id="agent-strip" class="agent-strip hidden"></div>
-        <div class="terminal-top"><div><strong id="terminal-title"></strong><span id="terminal-subtitle"></span></div><div class="toolbar"><button id="files-toggle">Files</button><button id="terminal-close">Disconnect</button></div></div>
+        <div class="terminal-top"><button id="back-to-list" class="icon mobile-only" type="button" aria-label="Back to connections" title="Back to connections"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button><div class="terminal-title"><strong id="terminal-title"></strong><span id="terminal-subtitle"></span></div><div class="toolbar"><button id="files-toggle">Files</button><button id="terminal-close">Disconnect</button></div></div>
         <div class="terminal-and-files"><div id="terminal" class="terminal"></div><section id="files-pane" class="files-pane hidden"><div class="files-head"><strong>Remote files</strong><button id="files-close" class="text-button" aria-label="Close files">×</button></div><div class="path-row"><input id="files-path" value="/" aria-label="Remote path"><button id="files-refresh" title="Refresh">↻</button></div><div class="file-actions"><button id="files-up">Up</button><button id="files-new-folder">New folder</button><button id="files-new-file">New file</button><button id="files-new-link">New link</button><button id="files-upload">Upload</button><input id="upload-input" type="file" hidden><button id="files-download">Download</button></div><div id="files-list" class="scroll"></div></section></div>
       </div>
     </main>

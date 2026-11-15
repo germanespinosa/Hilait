@@ -76,6 +76,8 @@ When required, approving a request (in the workspace or on the phone page), appr
 
 ## Use the workspace
 
+The workspace adapts to the screen: three columns on desktop, connections and sessions in one column on tablets, and on phones a connections list with a full-screen terminal (use the back arrow to return). It is tested in Chromium, Firefox, and WebKit (Safari) in light and dark mode.
+
 Create a saved machine with a display name, host, port, and SSH username. Under **Authentication & access**, choose **Username and password** or **Username and private key** for each configured SSH account. A private key path refers to a file readable by the Hilait server account; the browser does not upload the key. Saved passwords and key passphrases are encrypted locally. Switching methods clears the previously saved login secret. Hilait verifies the server's SHA-256 host-key fingerprint *before* sending SSH credentials. Compare a new or changed fingerprint with a trusted source, then explicitly trust it. You can keep multiple independent SSH terminals to the same machine; each agent purpose gets its own session.
 
 The left column holds saved machines. Drag one between its neighbors to save a new order. Selecting a machine shows only its active sessions, newest first. A new session selects its machine and terminal automatically; closed sessions disappear. Double-click a machine to connect, and disconnect from the terminal header or a session's context menu. Disconnecting warns that a remote foreground command or transfer may be interrupted.

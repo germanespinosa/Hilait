@@ -27,3 +27,8 @@ for (const subset of ['latin', 'latin-ext']) {
   }
 }
 await copyFile('node_modules/@fontsource/jetbrains-mono/LICENSE', 'licenses/jetbrains-mono-OFL.txt');
+for (const subset of ['latin', 'latin-ext']) {
+  const name = `inter-${subset}-wght-normal.woff2`;
+  await copyFile(`node_modules/@fontsource-variable/inter/files/${name}`, `src/hilait/static/fonts/${name}`);
+}
+await copyFile('node_modules/@fontsource-variable/inter/LICENSE', 'licenses/inter-OFL.txt');

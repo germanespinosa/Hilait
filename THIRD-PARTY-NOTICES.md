@@ -4,4 +4,6 @@ The bundled terminal uses [xterm.js](https://github.com/xtermjs/xterm.js) and th
 
 The bundled JetBrains Mono font is licensed under the SIL Open Font License 1.1. Its license is retained in `licenses/jetbrains-mono-OFL.txt`.
 
+The bundled Inter variable font (via `@fontsource-variable/inter`) is licensed under the SIL Open Font License 1.1. Its license is retained in `licenses/inter-OFL.txt`.
+
 Python dependencies are installed by pip and keep their respective upstream licenses. See `pyproject.toml` for the dependency list.

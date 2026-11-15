@@ -1,3 +1,54 @@
+@font-face {
+  font-family: 'Hilait Sans';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/static/fonts/inter-latin-ext-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Hilait Sans';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/static/fonts/inter-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* Design tokens shared by the workspace and the phone approval page. */
+:root {
+  --font-sans: 'Hilait Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'Hilait Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 26px;
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --control: 40px;
+  --control-sm: 32px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --z-status: 5;
+  --z-modal: 10;
+  --z-toast: 20;
+  --z-menu: 30;
+}
+@media (pointer: coarse) {
+  /* Comfortable touch targets; 16px inputs stop iOS Safari zooming on focus. */
+  :root { --control: 44px; --control-sm: 40px; }
+}
+
 :root {
   color-scheme: dark;
   --bg: #0e1718;
@@ -7,6 +58,7 @@
   --surface-soft: #1e3030;
   --field: #101b1d;
   --line: #344b49;
+  --line-strong: #5f7c76;
   --text: #edf5f1;
   --muted: #b4c7c0;
   --subtle: #91aca2;
@@ -20,11 +72,16 @@
   --selected: #29433b;
   --danger: #ffb5ae;
   --danger-soft: #452c2e;
+  --warning: #e7c77e;
+  --warning-soft: #4b3d23;
+  --scrim: #050c0bcc;
   --focus: #b5f5d7;
   --shadow: 0 18px 50px #0007;
   --terminal-bg: #000000;
   --terminal-fg: #e2eee8;
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -38,6 +95,7 @@
   --surface-soft: #eaf2ed;
   --field: #ffffff;
   --line: #c8d7ce;
+  --line-strong: #7a9387;
   --text: #172923;
   --muted: #435e53;
   --subtle: #526d60;
@@ -51,6 +109,9 @@
   --selected: #dcefe3;
   --danger: #a52e37;
   --danger-soft: #fae5e5;
+  --warning: #84560d;
+  --warning-soft: #f8edce;
+  --scrim: #0d1a1499;
   --focus: #135d9a;
   --shadow: 0 18px 50px #233c2925;
   --terminal-bg: #000000;

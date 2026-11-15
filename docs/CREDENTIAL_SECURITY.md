@@ -83,6 +83,27 @@ five-attempts-per-five-minutes limit as codes. `hilait passkeys
 reset` is the offline recovery path; anyone who can run it on the server can
 already read the data directory, so it does not weaken the boundary.
 
+## Exposing Hilait to the internet
+
+Hilait can sit behind a reverse proxy on a public HTTPS name. Every response
+carries anti-framing (`X-Frame-Options: DENY`, `frame-ancestors 'none'`),
+`nosniff`, `no-referrer`, and a restrictive `Permissions-Policy`; HSTS is added
+when the request arrived over HTTPS (directly or via `X-Forwarded-Proto`).
+Request bodies are limited to 2 MiB, except administrator transfer uploads,
+which stream to disk. What remains reachable without signing in:
+
+* the page shells, static assets, `/health`, and `/.well-known/hilait`;
+* code and passkey sign-in. Wrong codes are limited globally (five per five
+  minutes, which an attacker can use to block code sign-in). Passkey sign-in is
+  deliberately outside that lockout, so a registered passkey always works;
+* agent token requests (limited per client address and to 20 pending). Their
+  names and reasons are unverified, are labelled as such in notifications and
+  in Agent Access, and grant nothing until you approve them and choose machines.
+
+Behind a proxy, Hilait sees the proxy's address unless the proxy is on the
+same host and sends `X-Forwarded-For` (uvicorn trusts it from `127.0.0.1`).
+**Sign out** in the sidebar ends the session on the server immediately.
+
 ## Where the master key lives
 
 In the recommended Linux service, the original random `master.key` is held at

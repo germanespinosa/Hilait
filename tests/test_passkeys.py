@@ -273,9 +273,19 @@ async def test_passkey_sign_in(tmp_path, activate_otp):
         assert crossed.status_code == 403
         for _ in range(4):
             options = (await client.post("/api/auth/passkey/options")).json()
-            await client.post("/api/auth/passkey/verify", json={"passkey": authenticator.get(options, tamper=True)})
-        limited = await client.post("/api/auth/passkey/verify", json={"passkey": {"response": {}}})
-        assert limited.status_code == 429
+            forged = await client.post("/api/auth/passkey/verify", json={"passkey": authenticator.get(options, tamper=True)})
+            assert forged.status_code == 403
+        # Anyone can lock out code sign-in with wrong codes; passkey sign-in must keep working.
+        for _ in range(6):
+            await client.post("/api/auth/verify", json={"code": "000000"})
+        assert (await client.post("/api/auth/verify", json={"code": "000000"})).status_code == 429
+        options = (await client.post("/api/auth/passkey/options")).json()
+        rescued = await client.post("/api/auth/passkey/verify", json={"passkey": authenticator.get(options)})
+        assert rescued.status_code == 200, rescued.text
+        session = {"Authorization": "Bearer " + rescued.json()["session"]}
+        assert (await client.get("/api/state", headers=session)).status_code == 200
+        assert (await client.post("/api/auth/logout", headers=session)).json() == {"signed_out": True}
+        assert (await client.get("/api/state", headers=session)).status_code in {401, 403}
     assert sum(1 for item in runtime.passkeys.challenges.values() if item["purpose"] == "login") <= 20
     kinds = [record["kind"] for record in runtime.audit.records()]
     assert "passkey_sign_in" in kinds

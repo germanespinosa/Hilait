@@ -29,6 +29,7 @@ from .review import ENDPOINTS, Reviewer
 from .sessions import HostKeyApprovalNeeded, SessionManager
 from .storage import Audit, Store
 from .passkeys import Passkeys
+from .security import SecurityMiddleware
 from .transfers import TransferArea
 
 STATIC = Path(__file__).parent / "static"
@@ -150,6 +151,7 @@ def create_app(root: Path | None = None) -> FastAPI:
     app = FastAPI(title="Hilait", version=__version__, lifespan=lifespan)
     app.state.runtime = runtime
     app.state.build = build_id()
+    app.add_middleware(SecurityMiddleware)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     review_runs: dict[str, asyncio.Lock] = {}
 
@@ -331,6 +333,13 @@ def create_app(root: Path | None = None) -> FastAPI:
     async def passkey_login(payload: dict, response: Response):
         response.headers["Cache-Control"] = "no-store"
         return {"session": runtime.auth.passkey_session(lambda: runtime.passkeys.verify_login(payload.get("passkey")))}
+
+    @app.post("/api/auth/logout")
+    async def logout(response: Response, authorization: str | None = Header(default=None)):
+        response.headers["Cache-Control"] = "no-store"
+        if authorization and authorization.startswith("Bearer "):
+            runtime.auth.logout(authorization[7:])
+        return {"signed_out": True}
 
     @app.post("/api/auth/verify")
     async def verify_admin_otp(payload: dict, response: Response):

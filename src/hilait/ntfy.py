@@ -103,8 +103,9 @@ class NtfyNotifier:
         if not config.get("enabled"):
             return
         reason = request["reason"][:180].strip() + ("…" if len(request["reason"]) > 180 else "")
-        payload = {"topic": config["topic"], "title": f"Hilait: {request['name']} asks for an agent token",
-                   "message": f"{reason}\nExpires in 10 minutes. Machines stay off until you choose them.",
+        payload = {"topic": config["topic"], "title": f"Hilait: unverified token request ({request['name']})",
+                   "message": f"Anyone who can reach Hilait can send this; approve only if you started this agent.\n"
+                              f"Stated reason: {reason}\nExpires in 10 minutes. Machines stay off until you choose them.",
                    "priority": 4,
                    "actions": [{"action": "view", "label": "Review in Agent Access",
                                 "url": config["hilait_url"] + "/#settings=agents"}]}

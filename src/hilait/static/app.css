@@ -41,6 +41,7 @@ a { color: var(--accent); }
 .brand { display: flex; align-items: center; gap: 11px; margin: 0 5px 24px; }
 .brand img { width: 42px; height: 42px; border-radius: 10px; }
 .brand strong { font-size: 21px; font-weight: 700; letter-spacing: -.03em; }
+.brand .brand-action { margin-left: auto; }
 .icon-row { display: flex; gap: 7px; }
 .icon-row .icon { flex: 1; }
 .search-label { margin-top: 18px; }

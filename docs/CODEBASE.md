@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.49** (passkey sign-in),
+*Last reviewed for package version **0.1.50** (security hardening),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -57,6 +57,7 @@ src/hilait/
   admin_auth.py    TOTP (RFC 6238) login, browser sessions, OTP seed lifecycle, rate limiting
   sessions.py      SSH sessions (Paramiko PTY), host-key trust policy, output buffer, screen snapshots
   files.py         Audited SFTP operations and collision-safe copy/upload/download
+  security.py      ASGI middleware: security headers (frame/sniff/referrer/permissions, HSTS over HTTPS) and 2 MiB body limit
   passkeys.py      WebAuthn step-up for approvals: minimal CBOR/authData parsing, ES256/RS256/Ed25519 verification, policy
   transfers.py     Hilait-managed server transfer folders (root setting, per agent/machine/tier folders, admin browse API)
   agents.py        Grants, tiers (legacy/normal/elevated), standing authorizations, idle timeout
@@ -430,7 +431,8 @@ transfer root), `POST /api/review/settings|models|{id}`,
 
 Public passkey sign-in: `POST /api/auth/passkey/options`,
 `POST /api/auth/passkey/verify` `{passkey}` → `{session}` (via
-`AdminAuth.passkey_session`, shared rate limit). `GET /api/auth/mode` also
+`AdminAuth.passkey_session`, intentionally exempt from the code lockout),
+`POST /api/auth/logout`. `GET /api/auth/mode` also
 returns `passkey` and `passkey_origin`.
 
 Passkeys: `GET /api/passkeys`, `PUT /api/passkeys/settings` (OTP code),
@@ -548,3 +550,6 @@ hilait serve --open          # local run on http://127.0.0.1:8765
     automatic: `api()` in app.js/approve.js routes through
     `HilaitPasskey.attach()`, whose `stepFor()` must list every such
     endpoint. Narrowing actions (reject, pause, revoke) never require one.
+13. Every HTTP response passes through `SecurityMiddleware`; JSON bodies over
+    2 MiB are refused (only `/api/transfers/file` streams). The page CSPs stay
+    `'self'`-only, including `connect-src`.

@@ -133,18 +133,22 @@ class AdminAuth:
             return self._session()
 
     def passkey_session(self, check) -> str:
-        """Create a browser session after `check()` verifies a passkey (same rate limit as codes)."""
+        """Create a browser session after `check()` verifies a passkey.
+
+        Deliberately outside the code lockout: a passkey signature cannot be
+        guessed, so anyone flooding wrong codes must not be able to lock the
+        administrator out of passkey sign-in as well.
+        """
         with self.lock:
             if not self._settings().get("seed"):
                 raise ValueError("OTP is not configured.")
-            self._check_rate()
-            try:
-                check()
-            except (PermissionError, ValueError):
-                self.failed.append(time.time())
-                raise
-            self.failed.clear()
+        check()
+        with self.lock:
             return self._session()
+
+    def logout(self, token: str) -> None:
+        with self.lock:
+            self.sessions.pop(hashlib.sha256(token.encode()).hexdigest(), None)
 
     def verify_code(self, code: str) -> None:
         """Confirm a current OTP code for a sensitive change, without creating a session."""

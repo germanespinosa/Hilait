@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="alternate" type="application/json" href="/.well-known/hilait" title="Agent setup">
   <meta name="color-scheme" content="light dark">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Hilait · Human in the loop AI terminal</title>
   <link rel="icon" href="/static/logo.png?v={{VERSION}}">
   <script src="/static/theme.js?v={{VERSION}}"></script>
@@ -41,7 +41,7 @@
 
   <div id="workspace" class="workspace hidden">
     <aside class="machines-pane">
-      <div class="brand"><img src="/static/logo.png?v={{VERSION}}" alt="" width="42" height="42"><strong>Hilait</strong></div>
+      <div class="brand"><img src="/static/logo.png?v={{VERSION}}" alt="" width="42" height="42"><strong>Hilait</strong><button id="sign-out" class="icon brand-action" type="button" title="Sign out" aria-label="Sign out"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M10 16l-4-4 4-4M6 12h10"/></svg></button></div>
       <div class="icon-row">
         <button id="new-profile" class="icon" title="New connection" aria-label="New connection"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></button>
         <button id="open-settings" class="icon" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></svg></button>

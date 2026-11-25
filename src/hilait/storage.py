@@ -249,7 +249,6 @@ class Store:
             return {
                 "id": profile["id"], "name": profile["name"],
                 "platform": profile.get("platform", "unix"),
-                "shell": profile.get("shell", "default"),
                 "capabilities": ["terminal", "files"] + ([] if profile.get("platform") == "windows" else ["sudo", "chmod", "symlink"]),
             }
         return {**{k: v for k, v in profile.items() if k not in {"secret", "sudo_secret", "elevated_secret", "elevated_sudo_secret"}},

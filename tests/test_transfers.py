@@ -128,7 +128,7 @@ async def test_local_transfer_approval_uses_managed_folder(tmp_path, fixture_ser
     runtime.transfers.update_settings(str(tmp_path / "transfers"))
     profile = {"id": "machine-transfer", "name": "Loopback", "host": "127.0.0.1", "port": fixture_server,
                "username": "harbor-test", "secret": runtime.store.encrypt("loopback-fixture-only"),
-               "platform": "unix", "shell": "default", "allowed_agent_ids": None}
+               "platform": "unix", "allowed_agent_ids": None}
     runtime.store.save_profiles([profile])
     try:
         await runtime.sessions.open(profile)

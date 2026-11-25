@@ -32,7 +32,7 @@ async def test_ssh_host_trust_terminal_sftp_and_agent_scope(tmp_path, fixture_se
     activate_otp(runtime)
     profile = {"id":"machine-1", "name":"Loopback", "host":"127.0.0.1", "port":fixture_server,
                "username":"harbor-test", "secret":runtime.store.encrypt("loopback-fixture-only"),
-               "platform":"unix", "shell":"default", "allowed_agent_ids":None}
+               "platform":"unix", "allowed_agent_ids":None}
     runtime.store.save_profiles([profile])
     with pytest.raises(HostKeyApprovalNeeded) as warning:
         await runtime.sessions.open(profile)

@@ -176,7 +176,7 @@ async def test_extend_authorization_can_become_permanent(tmp_path, activate_otp)
     headers = {"Authorization": "Bearer " + activate_otp(runtime)}
     agent, _ = runtime.store.create_agent("Extension fixture")
     profile = {"id": "extension-machine", "name": "Extension machine", "host": "localhost", "port": 22,
-               "username": "fixture", "platform": "unix", "shell": "default", "allowed_agent_ids": None}
+               "username": "fixture", "platform": "unix", "allowed_agent_ids": None}
     runtime.store.save_profiles([profile])
     authorization = runtime.agents.create_authorization(agent["id"], profile["id"], 1, "Remote")
 
@@ -207,7 +207,7 @@ async def test_change_authorization_file_access(tmp_path, activate_otp, monkeypa
     headers = {"Authorization": "Bearer " + activate_otp(runtime)}
     agent, _ = runtime.store.create_agent("File scope fixture")
     profile = {"id": "file-scope-machine", "name": "File scope machine", "host": "localhost", "port": 22,
-               "username": "fixture", "platform": "unix", "shell": "default", "allowed_agent_ids": None}
+               "username": "fixture", "platform": "unix", "allowed_agent_ids": None}
     runtime.store.save_profiles([profile])
     authorization = runtime.agents.create_authorization(agent["id"], profile["id"], None, "None", permanent=True)
     endpoint = f"/api/authorizations/{authorization['id']}/file-access"
@@ -256,7 +256,7 @@ async def test_permanent_authorization_and_low_score_revocation(tmp_path, monkey
     admin_session = activate_otp(runtime)
     agent, _ = runtime.store.create_agent("Review fixture")
     profile = {"id": "review-machine", "name": "Review machine", "host": "localhost", "port": 22,
-               "username": "fixture", "platform": "unix", "shell": "default", "allowed_agent_ids": None}
+               "username": "fixture", "platform": "unix", "allowed_agent_ids": None}
     runtime.store.save_profiles([profile])
     grant = await runtime.agents.request(agent, profile["id"],
                                          "Inspect the fixture machine and report its state without changing any files or services.")

@@ -33,7 +33,7 @@ async def hosted(tmp_path, activate_otp):
     runtime = app.state.runtime
     activate_otp(runtime)
     profile = {"id": "m1", "name": "Loopback", "host": "127.0.0.1", "port": ssh_port, "username": "harbor-test",
-               "secret": runtime.store.encrypt("loopback-fixture-only"), "platform": "unix", "shell": "default",
+               "secret": runtime.store.encrypt("loopback-fixture-only"), "platform": "unix",
                "allowed_agent_ids": None}
     runtime.store.save_profiles([profile])
     http_port = _free_port()

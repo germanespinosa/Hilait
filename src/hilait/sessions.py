@@ -36,55 +36,6 @@ class _TrustPolicy(paramiko.MissingHostKeyPolicy):
             raise HostKeyApprovalNeeded(endpoint, fingerprint, previous)
 
 
-def _windows_shell_command(profile: dict) -> str | None:
-    """Program to run as the session itself on Windows, instead of typing it into OpenSSH's shell.
-
-    Running it as the channel's command means nothing is echoed into the terminal,
-    the user is not left in nested shells, and `exit` ends the session.
-    """
-    if profile.get("platform") != "windows":
-        return None
-    shell = profile.get("shell", "default")
-    if shell == "powershell7":
-        # OpenSSH's default shell may be cmd.exe, Windows PowerShell, or pwsh; the
-        # built-in Windows PowerShell picks pwsh when installed and falls back otherwise.
-        return ('powershell.exe -NoLogo -NoProfile -Command '
-                '"if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) '
-                '{ & pwsh.exe -NoLogo } else '
-                '{ Write-Host \'PowerShell 7 is not installed; using Windows PowerShell 5.1.\'; '
-                '& powershell.exe -NoLogo }"')
-    if shell == "powershell5":
-        return "powershell.exe -NoLogo"
-    return None
-
-
-def _shell_start_command(profile: dict) -> str | None:
-    """Command typed into an interactive shell (Unix, or Windows servers that refuse exec)."""
-    windows = _windows_shell_command(profile)
-    if windows:
-        return windows + "\r"
-    shell = profile.get("shell", "default")
-    if shell == "powershell7":
-        return "pwsh -NoLogo\r"
-    if shell == "powershell5":
-        return "powershell.exe -NoLogo\r"
-    return None
-
-
-def _open_windows_shell(client: paramiko.SSHClient, profile: dict) -> paramiko.Channel | None:
-    command = _windows_shell_command(profile)
-    if not command:
-        return None
-    channel = client.get_transport().open_session(timeout=20)
-    try:
-        channel.get_pty(term="xterm-256color", width=100, height=30)
-        channel.exec_command(command)
-    except paramiko.SSHException:
-        channel.close()
-        return None
-    return channel
-
-
 @dataclass
 class Session:
     id: str
@@ -151,12 +102,8 @@ class SessionManager:
                                passphrase=(credential or None) if auth_method == "key" else None,
                                key_filename=profile.get("private_key") if auth_method == "key" else None,
                                allow_agent=False, look_for_keys=False, timeout=20, auth_timeout=20, banner_timeout=20)
-                channel = _open_windows_shell(client, profile)
-                if channel is None:
-                    channel = client.invoke_shell(term="xterm-256color", width=100, height=30)
-                    start_command = _shell_start_command(profile)
-                    if start_command:
-                        channel.send(start_command)
+                # The session uses the account's own login shell, exactly as `ssh` would.
+                channel = client.invoke_shell(term="xterm-256color", width=100, height=30)
                 channel.settimeout(1)
                 return client, channel
             except Exception:

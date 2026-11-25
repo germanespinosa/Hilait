@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.55** (Windows shell start),
+*Last reviewed for package version **0.1.56** (remote shell option removed),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -221,7 +221,7 @@ On the agent side, `hilait mcp` keeps its token/pending claim in
 ## 6. Machine profiles and access tiers
 
 A profile (in `connections.json`) contains: `id, name, host, port, username,
-platform (unix|windows), shell (default|powershell7|powershell5),
+platform (unix|windows),
 auth_method (password|key), private_key (server-side path), secret,
 sudo_policy, sudo_secret, allowed_agent_ids (null = all agents),
 agent_idle_timeout_minutes (default 10, 0 = off), access_mode
@@ -232,7 +232,7 @@ elevated_sudo_secret, elevated_sudo_policy, elevated_allowed_agent_ids
 elevated}`.
 
 * `Store.public_profile` strips secrets (adds `has_saved_*` flags);
-  `public_profile(agent=True)` exposes only id, name, platform, shell,
+  `public_profile(agent=True)` exposes only id, name, platform,
   capabilities.
 * **Tiers**: `legacy` (single account; existing profiles), or for `tiered`
   Unix profiles `normal` (must be an account that cannot escalate — human
@@ -332,11 +332,9 @@ depending on `sudo_policy` (`runtime.sudo_consents`, in memory).
   look_for_keys=False`, 20 s timeouts) using `_TrustPolicy`: an unknown or
   changed host key raises `HostKeyApprovalNeeded` → 409 → UI asks the human
   → `POST /api/hosts/trust`. Credentials are sent only after the key matches.
-* PTY: `xterm-256color`, 100×30 initial. On Windows profiles that choose
-  PowerShell 7 or 5.1, `_open_windows_shell` runs the shell as the channel's
-  command (exec + PTY) so nothing is echoed, shells are not nested, and `exit`
-  ends the session; servers that refuse exec fall back to typing
-  `_shell_start_command` into `invoke_shell` (also used for Unix choices).
+* PTY: `xterm-256color`, 100×30 initial, using the account's own login
+  shell (`invoke_shell`). There is no shell selection: profiles saved before
+  0.1.56 may still carry an ignored `shell` key.
 * Output buffer: 2 MiB rolling `bytearray` with `base_cursor`; `read(cursor)`
   reports a `gap` if the cursor fell off the buffer. Every chunk is audited
   as `terminal_output`. Agent input audited verbatim
@@ -534,7 +532,7 @@ hilait serve --open          # local run on http://127.0.0.1:8765
   `test_tiered_access`, `test_transfers`, `test_review`, `test_storage`,
   `test_security_storage`, `test_admin_auth`, `test_agent_enrollment`,
   `test_ntfy`, `test_lan`, `test_mcp`, `test_build_info`,
-  `test_terminal_startup`.
+  `test_profile_shell`.
 * Versioning: bump `version` in `pyproject.toml` **and** `__version__` in
   `src/hilait/__init__.py` together on each user-visible change (history
   shows one bump per feature commit). `package.json`'s version is

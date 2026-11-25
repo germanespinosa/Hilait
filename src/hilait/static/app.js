@@ -177,7 +177,6 @@
         ${field('Name','name',p.name,'text','required')}${field('Host','host',p.host,'text','required')}
         ${field('Port','port',p.port || 22,'number','required min="1" max="65535"')}
         <label>Remote platform<select name="platform"><option value="unix">Unix / Linux / macOS</option><option value="windows">Windows SSH</option></select></label>
-        <label>Remote shell<select name="shell"><option value="default">Default shell</option><option value="powershell7">PowerShell 7</option><option value="powershell5">Windows PowerShell 5.1</option></select></label>
         ${field('Agent inactivity timeout (minutes)','agent_idle_timeout_minutes',p.agent_idle_timeout_minutes ?? 10,'number','required min="0"')}
       </div>
       <div id="connection-access" class="form-grid hidden" role="tabpanel" aria-labelledby="connection-tab-access" data-connection-panel="access">
@@ -200,7 +199,7 @@
       </div>
       <div class="actions"><button type="button" data-close>Cancel</button><button type="submit" class="primary">Save connection</button></div>
     </form>`);
-    const form = $('#profile-form'); form.platform.value = p.platform || 'unix'; form.shell.value = p.shell || 'default';
+    const form = $('#profile-form'); form.platform.value = p.platform || 'unix';
     const showTab = which => {
       form.querySelectorAll('[data-connection-tab]').forEach(button => {
         const active=button.dataset.connectionTab===which;

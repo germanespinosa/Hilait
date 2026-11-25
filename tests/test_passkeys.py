@@ -172,7 +172,7 @@ async def test_api_requires_passkey_for_approvals(tmp_path, activate_otp):
         return totp(seed, time.time())
 
     profile = {"id": "m1", "name": "Loopback", "host": "127.0.0.1", "port": port, "username": "harbor-test",
-               "secret": runtime.store.encrypt("loopback-fixture-only"), "platform": "unix", "shell": "default",
+               "secret": runtime.store.encrypt("loopback-fixture-only"), "platform": "unix",
                "allowed_agent_ids": None}
     runtime.store.save_profiles([profile])
     try:

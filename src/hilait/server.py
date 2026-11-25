@@ -529,7 +529,6 @@ def create_app(root: Path | None = None) -> FastAPI:
             raise ValueError("Normal and elevated access must use different SSH accounts.")
         profile = {"id": profile_id, "name": name, "host": host, "port": port,
                    "username": username, "platform": payload.get("platform", old.get("platform", "unix")),
-                   "shell": payload.get("shell", old.get("shell", "default")),
                    "auth_method": auth_method, "private_key": private_key,
                    "allowed_agent_ids": allowed,
                    "access_mode": mode, "normal_unprivileged_confirmed": confirmed,

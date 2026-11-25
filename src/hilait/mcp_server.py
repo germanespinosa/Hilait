@@ -127,7 +127,7 @@ def register_agent_tools(mcp: MCPServer, call: Callable[[str, dict], Awaitable[A
     async def release_access(access: str, closeConnection: bool = True) -> dict:
         return await call("release_access", locals())
 
-    @mcp.tool(description="Write exactly one of text or base64 bytes to the same visible interactive PTY the user sees. No newline is appended. Read output from the returned cursor.")
+    @mcp.tool(description="Write exactly one of text or base64 bytes to the same visible interactive PTY the user sees. No newline is appended; end a command with \\r (Enter). Windows shells treat \\n as a continuation line. Read output from the returned cursor.")
     async def terminal_write(access: str, text: str | None = None, base64: str | None = None) -> dict:
         return await call("terminal_write", locals())
 

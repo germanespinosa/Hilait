@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.54** (stdio bridge payload fix),
+*Last reviewed for package version **0.1.55** (Windows shell start),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -332,8 +332,11 @@ depending on `sudo_policy` (`runtime.sudo_consents`, in memory).
   look_for_keys=False`, 20 s timeouts) using `_TrustPolicy`: an unknown or
   changed host key raises `HostKeyApprovalNeeded` → 409 → UI asks the human
   → `POST /api/hosts/trust`. Credentials are sent only after the key matches.
-* PTY: `xterm-256color`, 100×30 initial; Windows PowerShell choice sends a
-  startup command (`_shell_start_command`).
+* PTY: `xterm-256color`, 100×30 initial. On Windows profiles that choose
+  PowerShell 7 or 5.1, `_open_windows_shell` runs the shell as the channel's
+  command (exec + PTY) so nothing is echoed, shells are not nested, and `exit`
+  ends the session; servers that refuse exec fall back to typing
+  `_shell_start_command` into `invoke_shell` (also used for Unix choices).
 * Output buffer: 2 MiB rolling `bytearray` with `base_cursor`; `read(cursor)`
   reports a `gap` if the cursor fell off the buffer. Every chunk is audited
   as `terminal_output`. Agent input audited verbatim

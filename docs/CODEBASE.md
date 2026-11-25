@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.56** (remote shell option removed),
+*Last reviewed for package version **0.1.57** (connection form per platform),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -507,6 +507,10 @@ model.
   build` and commit `static/vendor/xterm.js` and fonts.
 * `approve.*` is the standalone phone approval page (OTP sign-in, full
   purpose, duration, elevated confirmation).
+* The connection dialog (`profileDialog`) hides Unix-only fields for
+  Windows connections in `updateTier` (account setup forced to single account,
+  sudo password and approval hidden); the server separately refuses tiered
+  Windows profiles and managed sudo on Windows.
 * Settings → File transfers (`transferSettings` in app.js) browses the
   transfer root with breadcrumbs, uploads/downloads/deletes items, and edits
   the root folder.

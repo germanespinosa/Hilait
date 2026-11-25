@@ -30,3 +30,11 @@ def test_responsive_shell_and_bundled_fonts():
     for font in ("inter-latin-wght-normal.woff2", "inter-latin-ext-wght-normal.woff2"):
         assert font in theme and (STATIC / "fonts" / font).is_file()
     assert "--line-strong" in theme and "font-size: 16px" in css  # control contrast; no iOS focus zoom
+
+
+def test_connection_form_hides_unix_only_fields_for_windows():
+    from pathlib import Path
+    app = (Path(__file__).parents[1] / "src/hilait/static/app.js").read_text(encoding="utf-8")
+    assert "$('#single-sudo').classList.toggle('hidden',tiered||windows)" in app
+    assert "$('#account-setup').classList.toggle('hidden',windows)" in app
+    assert "form.platform.onchange=updateTier" in app

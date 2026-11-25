@@ -88,7 +88,7 @@ The terminal uses a black background in every appearance mode, bundled xterm.js,
 
 **Files** opens a remote SFTP pane beside the selected terminal. Browse directories, create folders, upload and download through the browser, and rename or delete from the context menu. The SFTP API additionally supports paged listings, stat, bounded reads and writes, POSIX chmod, symlinks, and remote-to-remote or local-folder copies. Copy destinations must be new; recursive copies refuse symbolic links and do not overwrite. Each active session has its own SFTP channel.
 
-Sessions on Windows SSH machines open the account's default OpenSSH shell, exactly as `ssh` would. To land in PowerShell 7, set OpenSSH's `DefaultShell` on that machine (an administrator PowerShell: `New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell -Value "C:\Program Files\PowerShell\7\pwsh.exe" -PropertyType String -Force`). SFTP paths on those machines accept `C:\Users\name` or `/C:/Users/name`. POSIX chmod, symlinks, and managed sudo are not offered for Windows SSH machines.
+Sessions on Windows SSH machines open the account's default OpenSSH shell, exactly as `ssh` would. To land in PowerShell 7, set OpenSSH's `DefaultShell` on that machine (an administrator PowerShell: `New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell -Value "C:\Program Files\PowerShell\7\pwsh.exe" -PropertyType String -Force`). The connection form shows only the settings that apply: Windows connections use a single SSH account and have no sudo settings. SFTP paths on those machines accept `C:\Users\name` or `/C:/Users/name`. POSIX chmod, symlinks, and managed sudo are not offered for Windows SSH machines.
 
 ## Give an agent access
 

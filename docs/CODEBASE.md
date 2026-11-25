@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.53** (review backoff),
+*Last reviewed for package version **0.1.54** (stdio bridge payload fix),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -62,7 +62,7 @@ src/hilait/
   transfers.py     Hilait-managed server transfer folders (root setting, per agent/machine/tier folders, admin browse API)
   agents.py        Grants, tiers (legacy/normal/elevated), standing authorizations, idle timeout
   enrollment.py    Remote agent self-enrollment requests (claim-secret protected)
-  mcp_server.py    stdio MCP bridge run on the agent's machine; forwards to /agent/{tool}. `register_agent_tools()` is shared with remote_mcp.py
+  mcp_server.py    stdio MCP bridge run on the agent's machine; forwards to /agent/{tool}. `register_agent_tools()` is shared with remote_mcp.py (its tools pass `locals()`; the wrapper drops the captured `call` key)
   remote_mcp.py    Hosted MCP endpoint at /mcp (stateless Streamable HTTP); agent bearer token per request; tools run in-process via run_agent_tool
   review.py        LLM activity review: evidence building, prompts, provider streaming, result validation
   ntfy.py          ntfy push for pending approvals and low review scores

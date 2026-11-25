@@ -101,6 +101,8 @@ def register_agent_tools(mcp: MCPServer, call: Callable[[str, dict], Awaitable[A
     raw_call = call
 
     async def call(tool: str, payload: dict) -> Any:
+        # Tools pass locals(); inside this closure that also holds `call` itself.
+        payload = {key: value for key, value in payload.items() if key != "call"}
         try:
             return await raw_call(tool, payload)
         except ToolError:

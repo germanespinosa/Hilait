@@ -24,3 +24,27 @@ async def test_stdio_tools_initialize():
                 names = {tool.name for tool in (await client.list_tools()).tools}
                 assert {"connections", "request_access", "release_access", "terminal_write",
                         "terminal_read", "terminal_screen", "files", "copy", "request_sudo"} <= names
+
+
+@pytest.mark.asyncio
+async def test_tool_payloads_are_plain_json():
+    """Regression: locals() inside the shared tool closure also captured `call`."""
+    import json
+    from mcp.server.mcpserver import MCPServer
+    from hilait.mcp_server import register_agent_tools
+
+    sent = []
+
+    async def fake_call(tool, payload):
+        json.dumps(payload)
+        sent.append((tool, payload))
+        return {}
+
+    server = MCPServer("test")
+    register_agent_tools(server, fake_call)
+    await server.call_tool("request_access", {"connection": "box", "purpose": "x" * 80})
+    await server.call_tool("terminal_read", {"access": "g", "cursor": 3})
+    assert sent == [
+        ("request_access", {"connection": "box", "purpose": "x" * 80, "fileAccess": "None", "privilege": None}),
+        ("terminal_read", {"access": "g", "cursor": 3}),
+    ]

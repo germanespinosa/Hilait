@@ -26,7 +26,7 @@ from .admin_auth import AdminAuth, RateLimitError
 from .enrollment import AgentEnrollment
 from .files import FileService
 from .ntfy import NtfyNotifier
-from .review import ENDPOINTS, Reviewer
+from .review import AUTO_BATCH, ENDPOINTS, Reviewer
 from .sessions import HostKeyApprovalNeeded, SessionManager
 from .storage import Audit, Store
 from .passkeys import Passkeys
@@ -131,13 +131,10 @@ def create_app(root: Path | None = None) -> FastAPI:
         async def automatic_reviews():
             while True:
                 await asyncio.sleep(30)
-                if runtime.reviewer.settings()["mode"] != "automatic":
-                    continue
-                for grant_id in runtime.reviewer.pending():
-                    try:
-                        await run_review(grant_id)
-                    except Exception as exc:
-                        runtime.reviewer.progress[grant_id] = "Review failed: " + str(exc)
+                try:
+                    await review_batch(limit=AUTO_BATCH, automatic=True)
+                except Exception:
+                    LOG.exception("Automatic review cycle failed")
         reviews = asyncio.create_task(automatic_reviews())
         async def activity_retention():
             while True:
@@ -164,6 +161,31 @@ def create_app(root: Path | None = None) -> FastAPI:
     app.add_middleware(SecurityMiddleware)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     review_runs: dict[str, asyncio.Lock] = {}
+
+    async def review_batch(*, limit: int | None, automatic: bool) -> int:
+        """Review pending sessions without letting a failing provider overwhelm the server."""
+        reviewer = runtime.reviewer
+        if automatic and reviewer.settings()["mode"] != "automatic":
+            return 0
+        if not reviewer.provider_ready():
+            return 0
+        pending = await asyncio.to_thread(reviewer.pending)  # decrypts audit records; keep the event loop free
+        started = 0
+        for grant_id in pending:
+            if limit is not None and started >= limit:
+                break
+            if automatic and not reviewer.grant_due(grant_id):
+                continue
+            started += 1
+            try:
+                await run_review(grant_id)
+                reviewer.record_success(grant_id)
+            except Exception as exc:
+                reviewer.progress[grant_id] = "Review failed: " + str(exc)
+                if reviewer.record_failure(grant_id, exc):
+                    LOG.warning("Activity review paused for the provider: %s", exc)
+                    break
+        return started
 
     async def run_review(grant_id: str) -> dict:
         async with activity_lock:
@@ -936,17 +958,19 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @app.post("/api/review/{grant_id}", dependencies=[Depends(admin)])
     async def review_one(grant_id: str):
-        return await run_review(grant_id)
+        try:
+            result = await run_review(grant_id)
+        except Exception as exc:
+            runtime.reviewer.record_failure(grant_id, exc)
+            raise
+        runtime.reviewer.record_success(grant_id)  # a working manual review lifts any automatic pause
+        return result
 
     @app.post("/api/review-all", dependencies=[Depends(admin)])
     async def review_all():
-        async def task():
-            for grant_id in runtime.reviewer.pending():
-                try:
-                    await run_review(grant_id)
-                except Exception as exc:
-                    runtime.reviewer.progress[grant_id] = "Review failed: " + str(exc)
-        asyncio.create_task(task())
+        if not runtime.reviewer.provider_ready():
+            raise ValueError(runtime.reviewer.automatic_status() or "The model provider is unavailable right now.")
+        asyncio.create_task(review_batch(limit=None, automatic=False))
         return {"started": True}
 
     @app.post("/api/sudo/{request_id}/decide")

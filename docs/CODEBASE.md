@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.52** (hosted MCP endpoint),
+*Last reviewed for package version **0.1.53** (review backoff),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -404,6 +404,14 @@ depending on `sudo_policy` (`runtime.sudo_consents`, in memory).
   all tiers. `review-revocations.json` makes revocation idempotent per review.
 * Modes: `on_demand` (UI buttons, `/api/review-all`) or `automatic`
   (lifespan loop every 30 s over `Reviewer.pending()`).
+* `server.review_batch()` drives both modes. Provider failures are classified in
+  `review._provider_error`: 401/403/404 are fatal (pause until the settings
+  fingerprint changes; shown as `automatic_status` in `public_settings`), 429,
+  5xx and transport errors back off provider-wide (5 min doubling to 6 h), and
+  other errors back off only that session (`grant_backoff`). Automatic cycles
+  start at most `AUTO_BATCH` (5) reviews, and `pending()` and evidence building
+  run in a worker thread so the event loop stays responsive. (A rejected key
+  once made the loop retry every session continuously and starved the server.)
 
 ---
 

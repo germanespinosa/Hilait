@@ -15,6 +15,37 @@ import httpx
 
 from .storage import Audit, Store, utc_now
 
+AUTO_BATCH = 5                 # automatic reviews started per 30-second cycle
+BACKOFF_FIRST = 300            # seconds before retrying after the first failure
+BACKOFF_MAX = 6 * 3600
+
+
+class ReviewProviderError(ValueError):
+    """The model provider failed the request.
+
+    `fatal` errors (rejected key, unknown model or endpoint) pause automatic
+    reviews until the settings change; others back off and retry.
+    """
+
+    def __init__(self, message: str, *, fatal: bool) -> None:
+        super().__init__(message)
+        self.fatal = fatal
+
+
+def _provider_error(exc: Exception) -> ReviewProviderError:
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if status in (401, 403):
+            return ReviewProviderError(f"The model provider rejected the API key (HTTP {status}). "
+                                       "Update it in Settings → Activity review.", fatal=True)
+        if status == 404:
+            return ReviewProviderError("The model provider could not find that model or endpoint (HTTP 404). "
+                                       "Check Settings → Activity review.", fatal=True)
+        if status == 429:
+            return ReviewProviderError("The model provider is rate limiting or out of quota (HTTP 429).", fatal=False)
+        return ReviewProviderError(f"The model provider returned HTTP {status}.", fatal=False)
+    return ReviewProviderError(f"Could not reach the model provider ({type(exc).__name__}).", fatal=False)
+
 ENDPOINTS = {
     "local": "http://localhost:11434/v1",
     "openai": "https://api.openai.com/v1",
@@ -129,6 +160,50 @@ class Reviewer:
         self.progress: dict[str, str] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._evidence_hash_cache: dict[tuple[str, str], tuple[tuple[str, int], str]] = {}
+        # Automatic-review health: a provider-wide pause or backoff, and per-session backoff.
+        self.provider_state: dict = {}
+        self.grant_backoff: dict[str, tuple[int, float]] = {}
+
+    def _fingerprint(self, settings: dict | None = None) -> str:
+        settings = settings or self.settings()
+        parts = [settings[k] or "" for k in ("provider", "endpoint", "model", "api_key", "review_level")]
+        return hashlib.sha256("\0".join(parts).encode()).hexdigest()
+
+    def automatic_status(self) -> str | None:
+        state = self.provider_state
+        if not state or state.get("fingerprint") != self._fingerprint():
+            return None
+        if state.get("fatal"):
+            return "Automatic reviews are paused: " + state["message"] + " Saving these settings retries."
+        wait = int(state.get("retry_at", 0) - time.time())
+        return f"Automatic reviews are backing off: {state['message']} Next try in about {max(wait, 0) // 60 + 1} min." if wait > 0 else None
+
+    def provider_ready(self) -> bool:
+        state = self.provider_state
+        if not state or state.get("fingerprint") != self._fingerprint():
+            return True
+        return not state.get("fatal") and time.time() >= state.get("retry_at", 0)
+
+    def grant_due(self, grant_id: str) -> bool:
+        failures, retry_at = self.grant_backoff.get(grant_id, (0, 0.0))
+        return time.time() >= retry_at
+
+    def record_success(self, grant_id: str) -> None:
+        self.grant_backoff.pop(grant_id, None)
+        self.provider_state = {}
+
+    def record_failure(self, grant_id: str, exc: Exception) -> bool:
+        """Record a failed review; return True when the whole provider should stop for now."""
+        if isinstance(exc, ReviewProviderError):
+            previous = self.provider_state if self.provider_state.get("fingerprint") == self._fingerprint() else {}
+            failures = previous.get("failures", 0) + 1
+            self.provider_state = {"fingerprint": self._fingerprint(), "fatal": exc.fatal, "message": str(exc),
+                                   "failures": failures,
+                                   "retry_at": time.time() + min(BACKOFF_FIRST * 2 ** (failures - 1), BACKOFF_MAX)}
+            return True
+        failures = self.grant_backoff.get(grant_id, (0, 0.0))[0] + 1
+        self.grant_backoff[grant_id] = (failures, time.time() + min(BACKOFF_FIRST * 2 ** (failures - 1), BACKOFF_MAX))
+        return False
 
     def settings(self) -> dict:
         defaults = {"provider": "local", "endpoint": "", "model": "", "mode": "on_demand",
@@ -145,7 +220,8 @@ class Reviewer:
 
     def public_settings(self) -> dict:
         saved = self.settings()
-        return {k: v for k, v in saved.items() if k != "api_key"} | {"has_api_key": bool(saved["api_key"])}
+        return ({k: v for k, v in saved.items() if k != "api_key"} |
+                {"has_api_key": bool(saved["api_key"]), "automatic_status": self.automatic_status()})
 
     def save_settings(self, values: dict) -> dict:
         old = self.settings()
@@ -183,6 +259,9 @@ class Reviewer:
                     "revoke_all_tiers_on_safety": revoke_all,
                     "api_key": "" if values.get("clear_api_key") is True else self.store.encrypt(key) if key else old["api_key"] if same_connection else ""}
         self.store.write("review-settings.json", settings)
+        # New settings deserve a fresh attempt.
+        self.provider_state = {}
+        self.grant_backoff.clear()
         return self.public_settings()
 
     async def models(self, endpoint: str, api_key: str = "", provider: str = "local") -> list[str]:
@@ -257,7 +336,7 @@ class Reviewer:
         if not settings["model"]:
             raise ValueError("Connect a model and save it in Activity review settings first.")
         level = settings["review_level"]
-        evidence = self.evidence(grant_id, level)
+        evidence = await asyncio.to_thread(self.evidence, grant_id, level)
         serialized = json.dumps(evidence, ensure_ascii=False)
         if len(serialized.encode()) > 400_000:
             raise ValueError("Session exceeds the review capacity. Export it for analysis.")
@@ -349,42 +428,45 @@ class Reviewer:
         chunks: list[str] = []
         size = 0
         last_update = 0.0
-        async with httpx.AsyncClient(timeout=httpx.Timeout(600, connect=20)) as client:
-            async with client.stream("POST", url, json=body, headers=headers) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line or line.startswith("event:") or line.startswith(":"):
-                        continue
-                    if line.startswith("data: "):
-                        line = line[6:]
-                    if line == "[DONE]":
-                        break
-                    try:
-                        event = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if provider == "anthropic":
-                        delta = event.get("delta", {}) if event.get("type") == "content_block_delta" else {}
-                        piece = delta.get("text", "") if delta.get("type") == "text_delta" else ""
-                        reasoning = ""
-                    elif native:
-                        piece = event.get("message", {}).get("content", "")
-                        reasoning = event.get("message", {}).get("thinking", "")
-                    else:
-                        delta = (event.get("choices") or [{}])[0].get("delta", {})
-                        piece = delta.get("content") or ""
-                        reasoning = delta.get("reasoning_content") or ""
-                    if reasoning and time.monotonic() - last_update > 0.5:
-                        update(reasoning)
-                        last_update = time.monotonic()
-                    if piece:
-                        chunks.append(piece)
-                        size += len(piece.encode())
-                        if size > 1_048_576:
-                            raise ValueError("Model response exceeded 1 MiB.")
-                        if time.monotonic() - last_update > 0.5:
-                            update("Receiving review: " + "".join(chunks)[-180:])
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(600, connect=20)) as client:
+                async with client.stream("POST", url, json=body, headers=headers) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line or line.startswith("event:") or line.startswith(":"):
+                            continue
+                        if line.startswith("data: "):
+                            line = line[6:]
+                        if line == "[DONE]":
+                            break
+                        try:
+                            event = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if provider == "anthropic":
+                            delta = event.get("delta", {}) if event.get("type") == "content_block_delta" else {}
+                            piece = delta.get("text", "") if delta.get("type") == "text_delta" else ""
+                            reasoning = ""
+                        elif native:
+                            piece = event.get("message", {}).get("content", "")
+                            reasoning = event.get("message", {}).get("thinking", "")
+                        else:
+                            delta = (event.get("choices") or [{}])[0].get("delta", {})
+                            piece = delta.get("content") or ""
+                            reasoning = delta.get("reasoning_content") or ""
+                        if reasoning and time.monotonic() - last_update > 0.5:
+                            update(reasoning)
                             last_update = time.monotonic()
+                        if piece:
+                            chunks.append(piece)
+                            size += len(piece.encode())
+                            if size > 1_048_576:
+                                raise ValueError("Model response exceeded 1 MiB.")
+                            if time.monotonic() - last_update > 0.5:
+                                update("Receiving review: " + "".join(chunks)[-180:])
+                                last_update = time.monotonic()
+        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+            raise _provider_error(exc) from exc
         raw = "".join(chunks).strip()
         if not raw:
             raise ValueError("Model returned no review content.")

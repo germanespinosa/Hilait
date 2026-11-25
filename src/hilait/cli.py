@@ -74,5 +74,7 @@ def main() -> None:
         print(f"Admin token: {app.state.runtime.store.admin_token}", flush=True)
     if args.open:
         webbrowser.open(url + ("/" if otp_enabled else "/#token=" + app.state.runtime.store.admin_token))
+    import logging
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # it logs every request at INFO
     uvicorn.run(app, host="0.0.0.0" if args.lan else args.host, port=args.port,
                 log_level="info", timeout_graceful_shutdown=30, **uvicorn_options)

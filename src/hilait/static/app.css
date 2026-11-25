@@ -339,3 +339,4 @@ body.modal-open { overflow: hidden; }
 .config-alternative { margin-top: 22px; }
 .config-alternative summary { cursor: pointer; color: var(--muted); font-size: var(--text-sm); }
 .modal .actions + .settings-heading { margin-top: 26px !important; }
+.review-status { margin: 0 0 16px; padding: 10px 12px; color: var(--danger); background: var(--danger-soft); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); border-radius: var(--radius); font-size: var(--text-sm); }

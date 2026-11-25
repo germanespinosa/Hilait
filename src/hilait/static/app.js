@@ -365,7 +365,8 @@
     const revokeRow=(axis,label)=>`<label>${label}<select name="revoke_${axis}"><option value="">Off</option>${Array.from({length:11},(_,score)=>`<option value="${score}">At or below ${score}/10</option>`).join('')}</select></label>`;
     const elevatedRevokeRow=(axis,label)=>`<label>${label}<select name="elevated_revoke_${axis}"><option value="">Off</option>${Array.from({length:11},(_,score)=>`<option value="${score}">At or below ${score}/10</option>`).join('')}</select></label>`;
     const box=$('#settings-content');
-    box.innerHTML=`<form id="review-form">
+    const reviewStatus=state.reviewSettings?.automatic_status;
+    box.innerHTML=`<form id="review-form">${reviewStatus?`<p class="review-status" role="status">${escaped(reviewStatus)}</p>`:''}
       <h3 class="settings-heading">Model connection</h3>
       <div class="form-grid">
         <label>Provider<select name="provider"><option value="local">Local / Ollama</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="grok">Grok (xAI)</option></select></label>

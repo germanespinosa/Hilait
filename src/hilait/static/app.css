@@ -334,3 +334,8 @@ body.modal-open { overflow: hidden; }
 .transfer-path .transfer-link { padding: 4px 6px; }
 .transfer-upload { display: inline-flex; align-items: center; cursor: pointer; border: 1px solid var(--line); border-radius: var(--radius); }
 .login-card #passkey-login + p { margin-top: 14px; }
+
+.config-snippet { max-height: 220px; margin-top: 8px; overflow: auto; white-space: pre-wrap; word-break: break-all; user-select: all; }
+.config-alternative { margin-top: 22px; }
+.config-alternative summary { cursor: pointer; color: var(--muted); font-size: var(--text-sm); }
+.modal .actions + .settings-heading { margin-top: 26px !important; }

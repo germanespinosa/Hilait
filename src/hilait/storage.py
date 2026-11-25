@@ -283,10 +283,21 @@ class Store:
             self.write("agents.json", agents)
         return agent, token
 
-    def agent_config(self, agent_id: str) -> dict:
+    def agent_config(self, agent_id: str, server_url: str) -> dict:
+        """Ready-to-use MCP setups for one agent at the address the administrator uses."""
         agent = next((a for a in self.agents() if a["id"] == agent_id and a["active"]), None) or _missing("Agent")
-        return {"mcpServers": {"hilait": {"command": "hilait", "args": ["mcp"],
-                "env": {"HILAIT_AGENT_TOKEN": self.decrypt(agent["token"])}}}}
+        token = self.decrypt(agent["token"])
+        hosted = server_url.rstrip("/") + "/mcp"
+        return {
+            "url": hosted,
+            "claude_code": f'claude mcp add --scope user --transport http hilait {hosted} '
+                           f'--header "Authorization: Bearer {token}"',
+            "mcpServers": {"hilait": {"type": "http", "url": hosted,
+                                      "headers": {"Authorization": f"Bearer {token}"}}},
+            "bridge": {"mcpServers": {"hilait": {"command": "hilait",
+                                                 "args": ["mcp", "--server", server_url.rstrip("/")],
+                                                 "env": {"HILAIT_AGENT_TOKEN": token}}}},
+        }
 
 
 def _missing(what: str) -> Any:

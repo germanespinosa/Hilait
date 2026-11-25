@@ -17,6 +17,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.routing import Route
 
 from . import __version__
 from .agents import (AGENT_WARNING, ELEVATED_WARNING, AgentRuntime, ENDED, SCOPES,
@@ -29,6 +30,7 @@ from .review import ENDPOINTS, Reviewer
 from .sessions import HostKeyApprovalNeeded, SessionManager
 from .storage import Audit, Store
 from .passkeys import Passkeys
+from .remote_mcp import RemoteMCP
 from .security import SecurityMiddleware
 from .transfers import TransferArea
 
@@ -118,8 +120,13 @@ def create_app(root: Path | None = None) -> FastAPI:
     activity_lock = asyncio.Lock()
     reviewing: dict[str, int] = {}
 
+    remote_mcp = RemoteMCP(runtime.store.agent_for_token,
+                           lambda identity, tool, payload: run_agent_tool(runtime, identity, tool, payload))
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        mcp_lifespan = remote_mcp.lifespan()
+        await mcp_lifespan.__aenter__()
         idle = asyncio.create_task(runtime.agents.idle_loop())
         async def automatic_reviews():
             while True:
@@ -147,10 +154,13 @@ def create_app(root: Path | None = None) -> FastAPI:
         retention.cancel()
         for session_id in list(runtime.sessions.sessions):
             await runtime.sessions.close(session_id, "Hilait stopped")
+        await mcp_lifespan.__aexit__(None, None, None)
 
     app = FastAPI(title="Hilait", version=__version__, lifespan=lifespan)
     app.state.runtime = runtime
     app.state.build = build_id()
+    # Hosted MCP endpoint for agents (Streamable HTTP, agent bearer token per request).
+    app.router.routes.append(Route("/mcp", endpoint=remote_mcp, methods=["GET", "POST", "DELETE"]))
     app.add_middleware(SecurityMiddleware)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     review_runs: dict[str, asyncio.Lock] = {}
@@ -304,13 +314,18 @@ def create_app(root: Path | None = None) -> FastAPI:
     async def health():
         return {"status": "ready"}
 
+    def public_url(request: Request) -> str:
+        scheme = "https" if request.headers.get("x-forwarded-proto", "").lower() == "https" else request.url.scheme
+        return f"{scheme}://{request.url.netloc}"
+
     @app.get("/.well-known/hilait")
     async def agent_discovery(request: Request, response: Response):
         response.headers["Cache-Control"] = "no-store"
-        scheme = "https" if request.headers.get("x-forwarded-proto", "").lower() == "https" else request.url.scheme
-        url = f"{scheme}://{request.url.netloc}"
+        url = public_url(request)
         return {"name": "Hilait", "server_url": url,
                 "mcp": {"command": "hilait", "args": ["mcp", "--server", url]},
+                "hosted_mcp": {"url": url + "/mcp", "transport": "streamable-http",
+                               "auth": "Authorization: Bearer <agent token>"},
                 "enrollment": {"request": "/api/agent-enrollment",
                                "status": "/api/agent-enrollment/{id}/status"},
                 "instructions": "Install the hilait package, add this MCP server, call request_agent_token with your name and reason, and poll agent_token_status until the OTP-signed-in administrator approves. Machine access needs separate approval."}
@@ -633,14 +648,16 @@ def create_app(root: Path | None = None) -> FastAPI:
                                         local_folder=payload.get("localFolder"))
 
     @app.post("/api/agents", dependencies=[Depends(admin)])
-    async def create_agent(payload: dict):
+    async def create_agent(payload: dict, request: Request, response: Response):
+        response.headers["Cache-Control"] = "no-store"
         entry, token = runtime.store.create_agent(payload["name"])
         return {"agent": {k: v for k, v in entry.items() if k not in {"token", "token_hash"}},
-                "config": runtime.store.agent_config(entry["id"])}
+                "config": runtime.store.agent_config(entry["id"], public_url(request))}
 
     @app.get("/api/agents/{agent_id}/config", dependencies=[Depends(admin)])
-    async def agent_config(agent_id: str):
-        return runtime.store.agent_config(agent_id)
+    async def agent_config(agent_id: str, request: Request, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        return runtime.store.agent_config(agent_id, public_url(request))
 
     @app.post("/api/agents/{agent_id}/permissions", dependencies=[Depends(admin)])
     async def agent_permissions(agent_id: str, payload: dict):

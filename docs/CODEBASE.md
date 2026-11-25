@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.51** (responsive UI and design tokens),
+*Last reviewed for package version **0.1.52** (hosted MCP endpoint),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -62,7 +62,8 @@ src/hilait/
   transfers.py     Hilait-managed server transfer folders (root setting, per agent/machine/tier folders, admin browse API)
   agents.py        Grants, tiers (legacy/normal/elevated), standing authorizations, idle timeout
   enrollment.py    Remote agent self-enrollment requests (claim-secret protected)
-  mcp_server.py    stdio MCP bridge run on the agent's machine; forwards to /agent/{tool}
+  mcp_server.py    stdio MCP bridge run on the agent's machine; forwards to /agent/{tool}. `register_agent_tools()` is shared with remote_mcp.py
+  remote_mcp.py    Hosted MCP endpoint at /mcp (stateless Streamable HTTP); agent bearer token per request; tools run in-process via run_agent_tool
   review.py        LLM activity review: evidence building, prompts, provider streaming, result validation
   ntfy.py          ntfy push for pending approvals and low review scores
   tls.py           Persistent self-signed certificate for `--lan` HTTPS
@@ -440,7 +441,12 @@ Passkeys: `GET /api/passkeys`, `PUT /api/passkeys/settings` (OTP code),
 `POST /api/passkeys/{id}/delete` (OTP code), `POST /api/passkeys/challenge`
 `{action, target}` → `{required, options}`.
 
-Agent (Bearer agent token): `POST /agent/{tool}`.
+Agent (Bearer agent token): `POST /agent/{tool}`, and the hosted MCP endpoint
+`GET|POST|DELETE /mcp` (raw ASGI route to `RemoteMCP`; 401 without a valid
+token; the SDK session manager runs inside the FastAPI lifespan). Tool
+refusals are raised as MCP `ToolError` so agents see the reason.
+`GET /api/agents/{id}/config` returns `{url, claude_code, mcpServers (hosted
+http), bridge (stdio JSON with --server)}` built from the request's address.
 
 WebSockets: `/ws/events` (state snapshot then events), `/ws/terminal/{id}`
 (client → `input` {base64|text}, `resize` {columns, rows},

@@ -92,9 +92,20 @@ Windows SSH machines can launch PowerShell 7 or Windows PowerShell 5.1 in the PT
 
 ## Give an agent access
 
-Open **Settings → Agent Access → Create agent access**. Hilait creates a named identity and a unique secret token. Copy its MCP configuration into the agent's client. It runs the installed `hilait mcp` command and connects to the local server. Keep the server running while agents work.
+### Hosted MCP endpoint (recommended)
 
-For a remote agent, you can instead give it **only your full HTTPS Hilait URL**. Install the `hilait` package on the agent's computer and add this MCP server, replacing the example URL with your instance:
+Hilait serves MCP itself at `https://<your Hilait address>/mcp` (Streamable HTTP), so nothing needs installing on the agent's computer. Open **Settings → Agent Access → Create agent access**, name the agent, and choose **Connect**. Copy the Claude Code command and run it once where Claude Code runs:
+
+```bash
+claude mcp add --scope user --transport http hilait https://hilait.example.com/mcp --header "Authorization: Bearer <agent token>"
+claude mcp list   # hilait … ✓ Connected
+```
+
+The same dialog offers JSON for other MCP clients that support Streamable HTTP. Every request must carry the agent token; a missing, wrong, or revoked token gets HTTP 401. The token works like a password: anyone holding it can *request* access as that agent (each request still needs your approval). Revoke it in Agent Access at any time. The hosted endpoint offers the ten machine tools below; agents cannot self-enroll through it.
+
+### Local bridge with self-enrollment
+
+Alternatively, an agent can run the `hilait mcp` bridge on its own computer and be given **only your full HTTPS Hilait URL**. Install the `hilait` package on the agent's computer and add this MCP server, replacing the example URL with your instance (in Claude Code: `claude mcp add --scope user hilait -- hilait mcp --server https://hilait.example.com`):
 
 ```json
 {

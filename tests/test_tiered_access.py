@@ -125,7 +125,7 @@ async def test_tiers_keep_credentials_permissions_and_authorizations_separate(tm
         assert "elevated_secret" not in profile
         agent_response = (await client.post("/api/agents", headers=headers, json={"name": "Test agent"})).json()
         agent = agent_response["agent"]
-        token = agent_response["config"]["mcpServers"]["hilait"]["env"]["HILAIT_AGENT_TOKEN"]
+        token = agent_response["config"]["bridge"]["mcpServers"]["hilait"]["env"]["HILAIT_AGENT_TOKEN"]
         agent_headers = {"Authorization": "Bearer " + token}
         connections = (await client.post("/agent/connections", headers=agent_headers, json={})).json()
         assert connections[0]["privileges"] == ["normal"]

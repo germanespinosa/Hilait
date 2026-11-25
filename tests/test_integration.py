@@ -107,7 +107,7 @@ async def test_api_token_and_machine_authorization(tmp_path, activate_otp):
         profile = created.json()
         assert "secret" not in profile
         agent = (await client.post("/api/agents", headers=headers, json={"name":"Agent"})).json()
-        token = agent["config"]["mcpServers"]["hilait"]["env"]["HILAIT_AGENT_TOKEN"]
+        token = agent["config"]["bridge"]["mcpServers"]["hilait"]["env"]["HILAIT_AGENT_TOKEN"]
         agent_headers = {"Authorization":"Bearer "+token}
         listed = await client.post("/agent/connections", headers=agent_headers, json={})
         assert listed.json()[0]["name"] == "One"

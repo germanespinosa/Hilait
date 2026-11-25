@@ -192,8 +192,14 @@ def test_agent_tokens_are_distinct_and_concealed(tmp_path):
     with pytest.raises(KeyError):
         store.agent_for_token("invalid")
     assert token not in (tmp_path / "agents.json").read_text()
-    config = store.agent_config(first["id"])
-    assert config["mcpServers"]["hilait"]["env"]["HILAIT_AGENT_TOKEN"] == token
+    config = store.agent_config(first["id"], "https://hilait.example.com/")
+    assert config["bridge"]["mcpServers"]["hilait"]["env"]["HILAIT_AGENT_TOKEN"] == token
+    # The local bridge config names the server; without it the bridge would try 127.0.0.1.
+    assert config["bridge"]["mcpServers"]["hilait"]["args"] == ["mcp", "--server", "https://hilait.example.com"]
+    assert config["mcpServers"]["hilait"] == {"type": "http", "url": "https://hilait.example.com/mcp",
+                                             "headers": {"Authorization": "Bearer " + token}}
+    assert config["claude_code"] == ("claude mcp add --scope user --transport http hilait https://hilait.example.com/mcp "
+                                     f'--header "Authorization: Bearer {token}"')
 
 
 def test_remote_and_local_paths_are_bounded(tmp_path):

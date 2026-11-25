@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import hashlib
 import json
 from pathlib import Path
+from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
 import httpx
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from platformdirs import user_data_path
 
 from .agents import AGENT_WARNING
@@ -31,7 +34,7 @@ def build_mcp(server_url: str | None = None, ca_cert: str | None = None) -> MCPS
         nonlocal token
         headers = {"Authorization": "Bearer " + token} if authenticated and token else {}
         if authenticated and not token:
-            raise ValueError("No agent token yet. Request one and wait for administrator approval.")
+            raise ToolError("No agent token yet. Request one and wait for administrator approval.")
         with httpx.Client(timeout=650, verify=verify) as client:
             response = client.post(base + path, json=payload, headers=headers)
             if response.is_error:
@@ -45,11 +48,8 @@ def build_mcp(server_url: str | None = None, ca_cert: str | None = None) -> MCPS
                     token = ""
                     saved.pop("token", None)
                     atomic_json(credential_file, saved)
-                raise ValueError(message)
+                raise ToolError(str(message))
             return response.json()
-
-    def call(tool: str, payload: dict):
-        return post(f"/agent/{tool}", payload, authenticated=True)
 
     @mcp.tool(description="Ask the OTP-signed-in Hilait administrator to create an agent identity for this server. Use this before other tools when no token has been configured. State who you are and why you need access; no machine access is granted automatically.")
     def request_agent_token(name: str, reason: str) -> dict:
@@ -83,50 +83,74 @@ def build_mcp(server_url: str | None = None, ca_cert: str | None = None) -> MCPS
             atomic_json(credential_file, saved)
         return {"state": state, "ready": False}
 
+    async def call(tool: str, payload: dict):
+        return await asyncio.to_thread(post, f"/agent/{tool}", payload, authenticated=True)
+
+    register_agent_tools(mcp, call)
+    return mcp
+
+
+def register_agent_tools(mcp: MCPServer, call: Callable[[str, dict], Awaitable[Any]]) -> None:
+    """Register the operational agent tools. `call(tool, payload)` performs one agent tool call.
+
+    The local stdio bridge forwards calls to the server over HTTPS; the server's
+    own /mcp endpoint runs them in-process for the authenticated agent.
+    Expected refusals become ToolError so the agent sees the reason; the MCP
+    SDK would otherwise replace the message with a generic "Error executing tool".
+    """
+    raw_call = call
+
+    async def call(tool: str, payload: dict) -> Any:
+        try:
+            return await raw_call(tool, payload)
+        except ToolError:
+            raise
+        except (KeyError, LookupError) as exc:
+            raise ToolError(str(exc.args[0]) if exc.args else "Not found.") from exc
+        except (ValueError, PermissionError, FileExistsError, FileNotFoundError, TimeoutError) as exc:
+            raise ToolError(str(exc) or type(exc).__name__) from exc
     @mcp.tool(description="List only the saved machines this registered agent may request. Names and IDs only; no usernames, hosts, or secrets. Each request still needs human approval. NO SHENANIGANS: activity is logged for review, and obfuscation or suspicious behavior may revoke access.")
-    def connections() -> list[dict]:
-        return call("connections", {})
+    async def connections() -> list[dict]:
+        return await call("connections", {})
 
     @mcp.tool(description="Request a fresh SSH session for a detailed stated purpose (80–8000 characters). Include desired fileAccess: None, Remote, or LocalTransfers (Remote plus copies through a Hilait-managed transfer folder on the server). Request privilege=normal or elevated on machines with separate accounts; omit it for single-account machines. Elevated requires separate approval and stronger review. NO SHENANIGANS: activity is logged and reviewed; obfuscation or suspicious behavior may revoke access. When done, call release_access with closeConnection=true.")
-    def request_access(connection: str, purpose: str, fileAccess: str = "None", privilege: str | None = None) -> dict:
-        return call("request_access", locals())
+    async def request_access(connection: str, purpose: str, fileAccess: str = "None", privilege: str | None = None) -> dict:
+        return await call("request_access", locals())
 
     @mcp.tool(description="Check Pending, Approved, Paused, Denied, Revoked, Expired, or Closed state. Only Approved permits operations.")
-    def access_status(access: str) -> dict:
-        return call("access_status", locals())
+    async def access_status(access: str) -> dict:
+        return await call("access_status", locals())
 
     @mcp.tool(description="Release this agent's access after completing the purpose. Set closeConnection=true to close the dedicated SSH session.")
-    def release_access(access: str, closeConnection: bool = True) -> dict:
-        return call("release_access", locals())
+    async def release_access(access: str, closeConnection: bool = True) -> dict:
+        return await call("release_access", locals())
 
     @mcp.tool(description="Write exactly one of text or base64 bytes to the same visible interactive PTY the user sees. No newline is appended. Read output from the returned cursor.")
-    def terminal_write(access: str, text: str | None = None, base64: str | None = None) -> dict:
-        return call("terminal_write", locals())
+    async def terminal_write(access: str, text: str | None = None, base64: str | None = None) -> dict:
+        return await call("terminal_write", locals())
 
     @mcp.tool(description="Read raw PTY output from a cursor. Returns exact base64, UTF-8 preview, next cursor, and a replay-gap flag.")
-    def terminal_read(access: str, cursor: int = 0) -> dict:
-        return call("terminal_read", locals())
+    async def terminal_read(access: str, cursor: int = 0) -> dict:
+        return await call("terminal_read", locals())
 
     @mcp.tool(description="Read the browser-rendered terminal screen when open; otherwise get a bounded plain-text fallback.")
-    def terminal_screen(access: str) -> dict:
-        return call("terminal_screen", locals())
+    async def terminal_screen(access: str) -> dict:
+        return await call("terminal_screen", locals())
 
     @mcp.tool(description="Perform an approved remote SFTP operation. Actions: list, stat, read, write, mkdir, rename, delete, chmod, symlink. Read/write chunks are at most 256 KiB. Files are never overwritten by default.")
-    def files(access: str, action: str, path: str, destination: str | None = None,
+    async def files(access: str, action: str, path: str, destination: str | None = None,
               base64: str | None = None, offset: int = 0, count: int = 65536,
               overwrite: bool = False, recursive: bool = False, mode: str | None = None) -> dict:
-        return call("files", locals())
+        return await call("files", locals())
 
     @mcp.tool(description="Copy a file or folder without overwriting or following symlinks. Direction is remote, upload, or download. Remote-to-remote requires approved file access on both grants. upload/download move files between the remote machine and this grant's Hilait transfer folder on the server (localFolder in access_status); give that side as a path relative to the folder.")
-    def copy(access: str, direction: str, path: str, destination: str,
+    async def copy(access: str, direction: str, path: str, destination: str,
              destinationAccess: str | None = None) -> dict:
-        return call("copy", locals())
+        return await call("copy", locals())
 
     @mcp.tool(description="Ask the human to approve a Unix sudo command on a single-account or elevated grant. Normal grants cannot use managed sudo. Never supply or ask for a password via MCP. The command runs on a separate SSH exec channel and does not inherit the visible shell's cwd.")
-    def request_sudo(access: str, command: str, reason: str) -> dict:
-        return call("request_sudo", locals())
-
-    return mcp
+    async def request_sudo(access: str, command: str, reason: str) -> dict:
+        return await call("request_sudo", locals())
 
 
 def run() -> None:

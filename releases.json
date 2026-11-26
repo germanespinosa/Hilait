@@ -9,7 +9,8 @@
         "Updates install and restart Hilait in place with a progress view; you stay signed in and the page reconnects by itself.",
         "One-time setup on the server: `sudo hilait updater install` adds a small root helper; the service itself stays unprivileged.",
         "Updates are confirmed with your passkey or authenticator code."
-      ]
+      ],
+      "commit": "f23c230b33136af9caaceb8652dea801038df09c"
     },
     {
       "version": "0.1.58",
@@ -17,7 +18,8 @@
       "notes": [
         "An unreachable machine now shows a clear message (\"<machine> did not answer…\" / \"refused the SSH connection\") instead of a bare error 500 when you approve access or connect.",
         "Connection errors name the machine only, never its host or user."
-      ]
+      ],
+      "commit": "769332ae195f16314e70a4942ff966f3d2d7cbe6"
     },
     {
       "version": "0.1.57",
@@ -25,7 +27,8 @@
       "notes": [
         "The connection editor shows only settings that apply: Windows connections hide account tiers and sudo options.",
         "Clearer labels for elevated and sudo passwords; even spacing in the sudo section."
-      ]
+      ],
+      "commit": "d7f403b87ab2e2f57648d8e0668f13460ed81225"
     },
     {
       "version": "0.1.56",
@@ -33,7 +36,8 @@
       "notes": [
         "Removed the Remote shell option: sessions open the account's default shell exactly like ssh.",
         "Agents no longer see a shell field for each machine."
-      ]
+      ],
+      "commit": "19376e8a9ac0b2d266033f5ccf260138e443e595"
     },
     {
       "version": "0.1.55",
@@ -41,14 +45,16 @@
       "notes": [
         "Windows PowerShell sessions start as the session itself, so no startup command is echoed and one `exit` closes the session.",
         "Agent instructions now say to end commands with \\r (Enter)."
-      ]
+      ],
+      "commit": "ce300238bea29a0c9900eb6c6289d2c1665fa4e5"
     },
     {
       "version": "0.1.54",
       "date": "2026-11-25",
       "notes": [
         "Fixed the local `hilait mcp` bridge failing every request_access and other tool calls (it sent an internal function in the payload)."
-      ]
+      ],
+      "commit": "752555cecf96e55ee6516d06282f9497a46b8e8b"
     },
     {
       "version": "0.1.53",
@@ -57,7 +63,8 @@
         "Automatic activity review pauses when the model provider rejects the API key and backs off on rate limits or outages, instead of flooding the provider and starving the server.",
         "The reason is shown at the top of Settings → Activity review; saving the settings resumes reviews.",
         "At most 5 automatic reviews start every 30 seconds."
-      ]
+      ],
+      "commit": "3c0865dabb066971188bb5cc1ffcf2fc5d00684d"
     },
     {
       "version": "0.1.52",
@@ -65,7 +72,8 @@
       "notes": [
         "Hosted MCP endpoint at /mcp: agents connect over HTTPS with their token, no local install needed.",
         "Settings → Agent access → Connect shows a ready-made Claude Code command."
-      ]
+      ],
+      "commit": "79e5f290096500b98002f24df82acc3f5e9233b0"
     },
     {
       "version": "0.1.51",
@@ -73,7 +81,8 @@
       "notes": [
         "Responsive workspace for phones, tablets and desktops with a unified design system (bundled Inter and JetBrains Mono, design tokens).",
         "Dialogs become bottom sheets on phones; larger touch targets; consistent colors across light and dark themes."
-      ]
+      ],
+      "commit": "476d48f8c41ae38262aeaf08ae055e04a39fe443"
     },
     {
       "version": "0.1.50",
@@ -82,42 +91,48 @@
         "Security hardening for internet exposure: security headers, HSTS, 2 MiB request limit, strict CSP for connections.",
         "Added sign-out.",
         "Agent token requests are marked as unverified."
-      ]
+      ],
+      "commit": "d1c1d21ab48ca79a6b5f4ecfa0c59f10bd00d558"
     },
     {
       "version": "0.1.49",
       "date": "2026-11-15",
       "notes": [
         "Sign in with a registered passkey instead of an authenticator code."
-      ]
+      ],
+      "commit": "c04f7e10e74ad9656cbde75bbea06c8a32c27da0"
     },
     {
       "version": "0.1.48",
       "date": "2026-11-15",
       "notes": [
         "ntfy push notification when an agent requests a token, with a link straight to Agent access."
-      ]
+      ],
+      "commit": "e6375dcaeba1da0e6d41a71233556ab3e808876a"
     },
     {
       "version": "0.1.47",
       "date": "2026-11-15",
       "notes": [
         "Passkey (fingerprint / Face ID / Windows Hello) verification for approvals, with an off / elevated-only / all policy."
-      ]
+      ],
+      "commit": "bc1e76191096c93a8653022eb0b281099d5f66f4"
     },
     {
       "version": "0.1.46",
       "date": "2026-11-15",
       "notes": [
         "Truecolor terminal colors work under the strict content security policy."
-      ]
+      ],
+      "commit": "12e491963905ae1799b2ae6afdeea808d21d278b"
     },
     {
       "version": "0.1.45",
       "date": "2026-11-14",
       "notes": [
         "Fixed terminal text selection and the cursor drifting away from typed text."
-      ]
+      ],
+      "commit": "0775d2571c447e92dc210cfd969aaf825be9b8f6"
     },
     {
       "version": "0.1.44",
@@ -125,112 +140,128 @@
       "notes": [
         "Agents' local file transfers use Hilait-managed folders on the server: nobody types folder paths during approval.",
         "Settings → File transfers lets you browse, upload, download and delete transfer files."
-      ]
+      ],
+      "commit": "f50fe628c42dd6e7209e7a38d5aa585537769fd6"
     },
     {
       "version": "0.1.43",
       "date": "2026-10-11",
       "notes": [
         "Configure activity storage and retention"
-      ]
+      ],
+      "commit": "a77dec19b25f96c509d38178ef0e5dda90d2c5b5"
     },
     {
       "version": "0.1.42",
       "date": "2026-10-11",
       "notes": [
         "Explain and edit authorization file access"
-      ]
+      ],
+      "commit": "ee56b81bc76d62a0fb5aba650f77fb556a2d8a87"
     },
     {
       "version": "0.1.41",
       "date": "2026-10-11",
       "notes": [
         "Filter active authorizations by agent and machine"
-      ]
+      ],
+      "commit": "5e60184a4b5eca29d64063de100fbf34ca8997c4"
     },
     {
       "version": "0.1.40",
       "date": "2026-10-11",
       "notes": [
         "Allow permanent authorization extensions"
-      ]
+      ],
+      "commit": "dc37b23ba75ef6b4a389d39b14f2ba249d38bc7a"
     },
     {
       "version": "0.1.39",
       "date": "2026-10-11",
       "notes": [
         "Refresh authorization view after saves"
-      ]
+      ],
+      "commit": "21004b17d5775d7529b39e994ea02fadf47328a2"
     },
     {
       "version": "0.1.38",
       "date": "2026-10-11",
       "notes": [
         "Polish Hilait workspace and approval UX"
-      ]
+      ],
+      "commit": "07f17bdc9cb3b1e9c33fbb97287454d3284b3643"
     },
     {
       "version": "0.1.37",
       "date": "2026-10-11",
       "notes": [
         "Match new authorization duration choices to approvals"
-      ]
+      ],
+      "commit": "c0573f4321ef03d3c18456e7d9323f3aa9c4d964"
     },
     {
       "version": "0.1.36",
       "date": "2026-10-11",
       "notes": [
         "Show only active authorizations and link revoke settings"
-      ]
+      ],
+      "commit": "2a16ac565af2f99e06bea1a6d61cb912cf42b28a"
     },
     {
       "version": "0.1.35",
       "date": "2026-10-11",
       "notes": [
         "Add explicit password and key authentication choices"
-      ]
+      ],
+      "commit": "89f91db7ce388de15c1b56eb33ba5579b060775b"
     },
     {
       "version": "0.1.34",
       "date": "2026-10-11",
       "notes": [
         "Organize connection editor into settings tabs"
-      ]
+      ],
+      "commit": "f3a25582a05c30a295574e98e22b9222f09178ff"
     },
     {
       "version": "0.1.33",
       "date": "2026-10-11",
       "notes": [
         "Add tiered normal and elevated SSH access for agents"
-      ]
+      ],
+      "commit": "bceb53bd9cb66904c100c365e2a8fed288fb78be"
     },
     {
       "version": "0.1.32",
       "date": "2026-10-11",
       "notes": [
         "Tighten connection and session list spacing"
-      ]
+      ],
+      "commit": "26c37ccb7e059267b01f58b4e3eda954725d3bc0"
     },
     {
       "version": "0.1.31",
       "date": "2026-10-11",
       "notes": [
         "Warn agents and add permanent access with score revocation"
-      ]
+      ],
+      "commit": "40c352d095122eadfd8b6a15e9ad7aa31383039b"
     },
     {
       "version": "0.1.30",
       "date": "2026-10-11",
       "notes": [
         "Show Hilait version and build in persistent footer"
-      ]
+      ],
+      "commit": "fb0e378787b4b28b2905f00aba09c7b8201ffb69"
     },
     {
       "version": "0.1.29",
       "date": "2026-10-11",
       "notes": [
         "Set private permissions on legacy test fixtures"
-      ]
+      ],
+      "commit": "fb92cf9be7c06e5d66a79c783cf96d009cd6666d"
     }
   ]
 }

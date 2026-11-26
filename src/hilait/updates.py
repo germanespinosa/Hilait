@@ -20,7 +20,7 @@ from pathlib import Path
 import httpx
 
 from . import __version__
-from .updater import UPDATER_VERSION, VERSION_PATTERN, version_key
+from .updater import COMMIT_PATTERN, UPDATER_VERSION, VERSION_PATTERN, version_key
 
 REPO = "germanespinosa/Hilait"
 RELEASES_URL = f"https://raw.githubusercontent.com/{REPO}/main/releases.json"
@@ -50,8 +50,8 @@ class UpdateManager:
         releases = []
         for item in data.get("releases", []):
             version = str(item.get("version", ""))
-            if not VERSION_PATTERN.fullmatch(version):
-                continue
+            if not VERSION_PATTERN.fullmatch(version) or not COMMIT_PATTERN.fullmatch(str(item.get("commit", ""))):
+                continue  # the updater can only install releases with a recorded commit
             notes = [str(n)[:500] for n in item.get("notes", []) if str(n).strip()][:40]
             releases.append({"version": version, "date": str(item.get("date", ""))[:10], "notes": notes})
         releases.sort(key=lambda r: version_key(r["version"]), reverse=True)

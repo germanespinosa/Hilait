@@ -14,10 +14,13 @@ from hilait.admin_auth import totp
 from hilait.server import Runtime, create_app
 from hilait.updater import Updater, read_request
 
+COMMITS = {"9" * 40: "9.9.9", "8" * 40: "0.1.58", "5" * 40: __version__, "4" * 40: "0.1.40"}
 RELEASES = {"releases": [
-    {"version": "9.9.9", "date": "2026-12-01", "notes": ["Big fix", ""]},
-    {"version": __version__, "date": "2026-11-26", "notes": ["This one"]},
-    {"version": "0.1.40", "date": "2026-10-11", "notes": ["Old"]},
+    {"version": "9.9.9", "date": "2026-12-01", "notes": ["Big fix", ""], "commit": "9" * 40},
+    {"version": __version__, "date": "2026-11-26", "notes": ["This one"], "commit": "5" * 40},
+    {"version": "0.1.58", "date": "2026-11-26", "notes": ["Previous"], "commit": "8" * 40},
+    {"version": "0.1.40", "date": "2026-10-11", "notes": ["Old"], "commit": "4" * 40},
+    {"version": "7.7.7", "notes": ["no commit recorded"]},
     {"version": "bad", "notes": ["ignored"]},
 ]}
 
@@ -50,10 +53,10 @@ async def test_overview_request_and_handoff(tmp_path, activate_otp):
         assert health == {"status": "ready", "version": __version__}
         overview = (await client.get("/api/update", headers=headers)).json()
         assert overview["current"] == __version__ and overview["latest"] == "9.9.9"
-        assert [r["version"] for r in overview["releases"]] == ["9.9.9", __version__, "0.1.40"]
+        assert [r["version"] for r in overview["releases"]][:3] == ["9.9.9", __version__, "0.1.58"]
         assert overview["releases"][0]["newer"] and overview["releases"][1]["current"]
         assert overview["releases"][0]["notes"] == ["Big fix"]
-        assert overview["releases"][2]["self_updating"] is False
+        assert overview["releases"][-1]["version"] == "0.1.40" and overview["releases"][-1]["self_updating"] is False
         assert overview["updater"] is None and overview["confirm"] == "code"
         assert overview["setup_command"].startswith("sudo ") and overview["setup_command"].endswith("updater install")
 
@@ -103,7 +106,7 @@ class FakeSystem:
             returncode, stdout, stderr = 0, "", ""
         result = Result()
         if argv[1:3] == ["-m", "pip"]:
-            target = argv[-1].rsplit("/v", 1)[1].removesuffix(".zip")
+            target = COMMITS[argv[-1].rsplit("/", 1)[1].removesuffix(".zip")]
             if self.install_ok:
                 if target == self.original and self.installed != self.original:
                     self.rolled_back = True
@@ -139,7 +142,7 @@ def test_updater_installs_restarts_and_reports(tmp_path):
     assert result["phase"] == "done" and result["from_version"] == "0.1.58"
     assert ["systemctl", "restart", "hilait.service"] in system.commands
     pip = next(c for c in system.commands if c[1:3] == ["-m", "pip"])
-    assert pip[-1] == "https://github.com/germanespinosa/Hilait/archive/refs/tags/v9.9.9.zip"
+    assert pip[-1] == f"https://github.com/germanespinosa/Hilait/archive/{'9' * 40}.zip"
     assert not (tmp_path / "update" / "request.json").exists()
     assert json.loads((tmp_path / "update" / "status.json").read_text())["phase"] == "done"
 

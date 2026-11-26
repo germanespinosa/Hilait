@@ -65,7 +65,7 @@ src/hilait/
   mcp_server.py    stdio MCP bridge run on the agent's machine; forwards to /agent/{tool}. `register_agent_tools()` is shared with remote_mcp.py (its tools pass `locals()`; the wrapper drops the captured `call` key)
   remote_mcp.py    Hosted MCP endpoint at /mcp (stateless Streamable HTTP); agent bearer token per request; tools run in-process via run_agent_tool
   updates.py       Settings → Updates: release list (releases.json on GitHub), guarded update requests, session hand-off, `hilait updater install`
-  updater.py       Standalone stdlib root updater (copied to /usr/local/lib/hilait-updater): installs a tagged release, restarts, health-checks, rolls back
+  updater.py       Standalone stdlib root updater (copied to /usr/local/lib/hilait-updater): installs a release commit, restarts, health-checks, rolls back
   review.py        LLM activity review: evidence building, prompts, provider streaming, result validation
   ntfy.py          ntfy push for pending approvals and low review scores
   tls.py           Persistent self-signed certificate for `--lan` HTTPS
@@ -597,5 +597,5 @@ hilait serve --open          # local run on http://127.0.0.1:8765
     2 MiB are refused (only `/api/transfers/file` streams). The page CSPs stay
     `'self'`-only, including `connect-src`.
 14. In-app updates: the service only writes a version number to `update/request.json`; the root updater builds the
-    download URL from its own config (fixed repo, `refs/tags/v<version>.zip`) and accepts only versions listed in
-    `releases.json`. Never let the service pass URLs, paths or commands to the updater.
+    download URL from its own config (fixed repo, `archive/<commit>.zip`) using the commit recorded for that version in
+    `releases.json` on GitHub; it accepts only versions listed there. Never let the service pass URLs, paths or commands to the updater.

@@ -26,6 +26,7 @@ from pathlib import Path
 
 UPDATER_VERSION = 1
 VERSION_PATTERN = re.compile(r"^\d{1,4}\.\d{1,4}\.\d{1,4}$")
+COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 REQUEST_LIMIT = 4096
 DEFAULT_CONFIG = Path("/etc/hilait/updater.json")
 
@@ -86,13 +87,17 @@ class Updater:
                           capture_output=True, text=True, timeout=60)
         return result.stdout.strip() if result.returncode == 0 else ""
 
-    def releases(self) -> list[dict]:
+    def releases(self) -> dict[str, str]:
+        """Published versions and the exact commit each one was released from."""
         url = f"https://raw.githubusercontent.com/{self.config['repo']}/main/releases.json"
         data = json.loads(self.fetch(url).decode("utf-8"))
-        return [r for r in data.get("releases", []) if VERSION_PATTERN.fullmatch(str(r.get("version", "")))]
+        return {str(r["version"]): str(r["commit"]) for r in data.get("releases", [])
+                if VERSION_PATTERN.fullmatch(str(r.get("version", ""))) and COMMIT_PATTERN.fullmatch(str(r.get("commit", "")))}
 
-    def install(self, version: str) -> tuple[bool, str]:
-        url = f"https://github.com/{self.config['repo']}/archive/refs/tags/v{version}.zip"
+    def install(self, version: str, commit: str) -> tuple[bool, str]:
+        if not COMMIT_PATTERN.fullmatch(commit):
+            return False, f"No release commit recorded for {version}."
+        url = f"https://github.com/{self.config['repo']}/archive/{commit}.zip"
         result = self.run([self.config["python"], "-m", "pip", "install", "--disable-pip-version-check",
                            "--no-input", "--upgrade", url], capture_output=True, text=True, timeout=1200)
         log = (result.stdout + result.stderr)[-4000:]
@@ -129,11 +134,12 @@ class Updater:
                        "started": time.time()}
         try:
             self.write_status(phase="checking", message="Checking the release list.")
-            if not any(r["version"] == request["version"] for r in self.releases()):
+            published = self.releases()
+            if request["version"] not in published:
                 self.write_status(phase="failed", message=f"Version {request['version']} is not a published release.")
                 return self.status
             self.write_status(phase="installing", message=f"Installing Hilait {request['version']}.")
-            ok, log = self.install(request["version"])
+            ok, log = self.install(request["version"], published[request["version"]])
             if not ok:
                 self.write_status(phase="failed", message="Installation failed; nothing was restarted.", log=log)
                 return self.status
@@ -143,7 +149,7 @@ class Updater:
                 return self.status
             if previous and previous != request["version"]:
                 self.write_status(phase="rolling_back", message=f"Hilait {request['version']} did not start; restoring {previous}.")
-                restored, rollback_log = self.install(previous)
+                restored, rollback_log = self.install(previous, published.get(previous, ""))
                 back = restored and self.restart_and_wait(previous)
                 self.write_status(phase="failed", log=rollback_log,
                                   message=(f"Hilait {request['version']} did not start, so {previous} was restored."

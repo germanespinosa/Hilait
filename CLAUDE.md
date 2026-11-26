@@ -18,5 +18,6 @@ Workflow for every change:
 5. Update `README.md` for user-facing behaviour and `docs/CODEBASE.md` for
    architecture, API, storage, or invariant changes.
 6. Commit with a short imperative subject (matching the existing history)
-   and push to `main` on GitHub so the repository stays current. Tag the commit
-   `v<version>` and push the tag: the in-app updater installs releases by tag.
+   and push to `main` on GitHub so the repository stays current. Then record that
+   commit's full hash as `commit` for the version in `releases.json` and push
+   again: the in-app updater installs releases by commit.

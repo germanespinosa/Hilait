@@ -10,7 +10,7 @@
         "One-time setup on the server: `sudo hilait updater install` adds a small root helper; the service itself stays unprivileged.",
         "Updates are confirmed with your passkey or authenticator code."
       ],
-      "commit": "f23c230b33136af9caaceb8652dea801038df09c"
+      "commit": "4a3fc77bce2d27aaffd649369857375b3967489f"
     },
     {
       "version": "0.1.58",

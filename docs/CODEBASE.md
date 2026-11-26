@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.58** (clear SSH connection errors),
+*Last reviewed for package version **0.1.59** (in-app updates),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -64,6 +64,8 @@ src/hilait/
   enrollment.py    Remote agent self-enrollment requests (claim-secret protected)
   mcp_server.py    stdio MCP bridge run on the agent's machine; forwards to /agent/{tool}. `register_agent_tools()` is shared with remote_mcp.py (its tools pass `locals()`; the wrapper drops the captured `call` key)
   remote_mcp.py    Hosted MCP endpoint at /mcp (stateless Streamable HTTP); agent bearer token per request; tools run in-process via run_agent_tool
+  updates.py       Settings → Updates: release list (releases.json on GitHub), guarded update requests, session hand-off, `hilait updater install`
+  updater.py       Standalone stdlib root updater (copied to /usr/local/lib/hilait-updater): installs a tagged release, restarts, health-checks, rolls back
   review.py        LLM activity review: evidence building, prompts, provider streaming, result validation
   ntfy.py          ntfy push for pending approvals and low review scores
   tls.py           Persistent self-signed certificate for `--lan` HTTPS
@@ -142,7 +144,7 @@ Key wiring facts:
 | Who | Credential | Checked by |
 | --- | --- | --- |
 | Human, before OTP | Admin token (random, encrypted in `admin.token`; printed on `serve`; `--open` passes it via `#token=` fragment) | `AdminAuth.valid` |
-| Human, OTP enabled | 6-digit TOTP or a registered passkey → 12 h in-memory session token (SHA-256 kept). Admin token is then **rejected** (403 `otp_required`). Sessions die on restart. 5 bad codes / 5 min → 429. Codes cannot be replayed (`last_step`). | `AdminAuth.verify_login/valid` |
+| Human, OTP enabled | 6-digit TOTP or a registered passkey → 12 h in-memory session token (SHA-256 kept). Admin token is then **rejected** (403 `otp_required`). Sessions die on restart, except an update restart: `UpdateManager.save_handoff` writes the session hashes to `update-handoff.enc` (master key) and the next process restores them once if under 15 minutes old. 5 bad codes / 5 min → 429. Codes cannot be replayed (`last_step`). | `AdminAuth.verify_login/valid` |
 | Agent | 64-hex token; `agents.json` stores SHA-256 hash + encrypted copy | `Store.agent_for_token` |
 | Enrolling agent | Private `claim` secret returned once by `POST /api/agent-enrollment` | `AgentEnrollment.status` |
 
@@ -193,6 +195,8 @@ Master key: Fernet key from `HILAIT_MASTER_KEY_FILE`, else
 | `passkeys.json` | `Passkeys` | master | Registered passkeys: id, name, alg, SPKI public key, sign count |
 | `passkey-settings.json` | `Passkeys` | master | `origin`, `rp_id`, `policy` (off/elevated/all) |
 | `transfer-settings.json` | `TransferArea` | plaintext | Optional transfer root override |
+| `update-handoff.enc` | `UpdateManager` | master | One-shot admin session hand-off across an update restart (15 min) |
+| `update/` | service + root updater | plaintext JSON | `request.json` (service → updater: id + version only), `status.json` (updater → service, chowned to the service user), `updater.json` (install marker) |
 | `lan.crt`, `lan.key` | `tls.py` | key PKCS#8-encrypted with HMAC(master, "Hilait LAN TLS private key v1") | LAN HTTPS identity |
 
 `CONNECTION_FILES` (`connections`, `known-hosts`, `authorizations`) use a
@@ -439,7 +443,11 @@ Admin (Bearer session): `/api/otp` (+ `setup`, `confirm`, `cancel`,
 `GET /api/transfers?path=` (list), `GET|POST|DELETE /api/transfers/file?path=`
 (download / raw-body upload, never overwrites / delete; paths relative to the
 transfer root), `POST /api/review/settings|models|{id}`,
-`POST /api/review-all`, `POST /api/sudo/{id}/decide`.
+`POST /api/review-all`, `POST /api/sudo/{id}/decide`,
+`GET /api/update[?refresh=true]` (current, releases with notes/newer/current flags, updater state, status,
+`confirm` = passkey|code|none, open sessions/grants), `GET /api/update/status`, `POST /api/update {version,
+code|passkey}` (validated before the confirmation is spent; step-up action `hilait_update`, always elevated).
+`GET /health` returns `{status, version}` so the browser can see the new version answer.
 
 Public passkey sign-in: `POST /api/auth/passkey/options`,
 `POST /api/auth/passkey/verify` `{passkey}` → `{session}` (via
@@ -588,3 +596,6 @@ hilait serve --open          # local run on http://127.0.0.1:8765
 13. Every HTTP response passes through `SecurityMiddleware`; JSON bodies over
     2 MiB are refused (only `/api/transfers/file` streams). The page CSPs stay
     `'self'`-only, including `connect-src`.
+14. In-app updates: the service only writes a version number to `update/request.json`; the root updater builds the
+    download URL from its own config (fixed repo, `refs/tags/v<version>.zip`) and accepts only versions listed in
+    `releases.json`. Never let the service pass URLs, paths or commands to the updater.

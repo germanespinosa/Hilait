@@ -8,12 +8,14 @@ import json
 import logging
 import re
 import shlex
+import sys
 import uuid
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -33,6 +35,8 @@ from .passkeys import Passkeys
 from .remote_mcp import RemoteMCP
 from .security import SecurityMiddleware
 from .transfers import TransferArea
+from .updates import UpdateManager
+from .updater import VERSION_PATTERN, version_key
 
 STATIC = Path(__file__).parent / "static"
 LOG = logging.getLogger(__name__)
@@ -69,6 +73,10 @@ class Runtime:
         self.reviewer = Reviewer(self.store, self.audit)
         self.sudo_requests: dict[str, tuple[dict, asyncio.Future]] = {}
         self.sudo_consents: set[str] = set()
+        self.updates = UpdateManager(self.store, self.auth, self.audit)
+        restored = self.updates.load_handoff()
+        if restored:
+            self.audit.write("hilait_update_sessions_restored", {}, {"sessions": restored, "version": __version__})
 
     def prune_activity(self, reviewing: set[str] | None = None) -> dict:
         active = {grant.id for grant in self.agents.grants.values() if grant.state not in ENDED}
@@ -283,6 +291,10 @@ def create_app(root: Path | None = None) -> FastAPI:
             return f"{agent_id}/{profile_id}/{privilege}", privilege == "elevated"
         if action == "agent_token_approve":
             return target, False
+        if action == "hilait_update":
+            if not VERSION_PATTERN.fullmatch(target):
+                raise ValueError("Choose a version from the list.")
+            return target, True  # changes the code that holds every credential
         raise ValueError("Unknown passkey action.")
 
     def require_passkey(session: str, action: str, target: str, payload: dict) -> None:
@@ -338,7 +350,48 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @app.get("/health")
     async def health():
-        return {"status": "ready"}
+        return {"status": "ready", "version": __version__}
+
+    def update_confirmation() -> str:
+        if runtime.passkeys.required("hilait_update", elevated=True):
+            return "passkey"
+        return "code" if runtime.auth.enabled() else "none"
+
+    @app.get("/api/update", dependencies=[Depends(admin)])
+    async def update_overview(refresh: bool = False):
+        error, releases = None, []
+        try:
+            releases = await runtime.updates.releases(refresh=refresh)
+        except (httpx.HTTPError, ValueError) as exc:
+            error = f"Could not load the release list from GitHub: {type(exc).__name__}"
+        current = version_key(__version__)
+        return {
+            "current": __version__, "build": app.state.build, "error": error,
+            "latest": releases[0]["version"] if releases else None,
+            "releases": [{**r, "current": r["version"] == __version__,
+                          "newer": version_key(r["version"]) > current,
+                          "self_updating": version_key(r["version"]) >= version_key("0.1.59")} for r in releases],
+            "updater": runtime.updates.updater(), "supported": sys.platform.startswith("linux"),
+            "setup_command": f"sudo {Path(sys.executable).with_name('hilait')} updater install",
+            "status": runtime.updates.status(), "confirm": update_confirmation(),
+            "open_sessions": len(runtime.sessions.sessions),
+            "active_grants": sum(1 for g in runtime.agents.grants.values() if g.state not in ENDED),
+        }
+
+    @app.get("/api/update/status", dependencies=[Depends(admin)])
+    async def update_status():
+        return {**runtime.updates.status(), "current": __version__}
+
+    @app.post("/api/update")
+    async def request_update(payload: dict, session: str = Depends(admin_session)):
+        version = str(payload.get("version", ""))
+        await runtime.updates.validate(version)  # before spending the passkey check or code
+        confirmation = update_confirmation()
+        if confirmation == "passkey":
+            require_passkey(session, "hilait_update", version, payload)
+        elif confirmation == "code":
+            runtime.auth.verify_code(str(payload.get("code", "")))
+        return await runtime.updates.request(version)
 
     def public_url(request: Request) -> str:
         scheme = "https" if request.headers.get("x-forwarded-proto", "").lower() == "https" else request.url.scheme

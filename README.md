@@ -46,6 +46,18 @@ hilait serve --lan
 
 Hilait prints one or more `https://<server-ip>:8765` addresses and a certificate fingerprint. Open the matching address from the other computer and enter the admin token if OTP is not configured, or the authenticator code if it is. The first visit shows a browser warning because Hilait generates its own self-signed certificate; compare the certificate's SHA-256 fingerprint with the server output before accepting it. The certificate and private key stay in Hilait's per-user data directory so the fingerprint remains stable across restarts. Allow TCP port 8765 through the server firewall if it is blocked. `--lan` listens on all network interfaces, so use it only on a network where access is restricted to people you intend to serve. To avoid a LAN listener, keep the default mode and use an SSH tunnel instead.
 
+### Update Hilait from the browser
+
+**Settings → Updates** lists every release with the fixes it shipped, preselects the latest, and lets you install any version, including an older one. Hilait installs it, restarts, and the page shows the progress and reloads by itself; you stay signed in. Updates are confirmed with your passkey (when passkeys are on) or an authenticator code. Open SSH sessions close and active agent access ends during the restart.
+
+Because the service runs unprivileged, enable this once on a Linux systemd server:
+
+```bash
+sudo /opt/hilait-venv/bin/hilait updater install
+```
+
+This copies a small standard-library updater to `/usr/local/lib/hilait-updater/`, writes `/etc/hilait/updater.json`, and enables `hilait-update.path`, which runs the root `hilait-update.service` when Hilait writes a request. The service can only ask for a version number; the updater checks it against `releases.json` on GitHub, installs that tagged release with the service's own Python, restarts `hilait.service`, waits for it to answer, and restores the previous version if the new one does not start. It reads the service account, data folder and port from the unit; override with `--unit`, `--user`, `--data-dir` or `--health-url`. Remove it with `sudo hilait updater uninstall`. Switching to a version older than 0.1.59 removes the Updates section; use pip on the server to come back.
+
 ### Authenticator and saved connections
 
 Open **Settings → Authenticator → Generate OTP seed**, scan the QR code with Google Authenticator or another TOTP app, then enter its six-digit code to activate it. You can also enter the displayed seed manually. Until activation, the admin token opens the workspace as before. After activation, Hilait asks only for the six-digit code; the admin token cannot use the web API or terminal WebSockets. A verified browser session lasts up to 12 hours and ends when Hilait restarts. The seed is encrypted in Hilait's data directory, and the QR code is generated locally. OTP is the sole web login factor while enabled, so keep the authenticator device and server account secure.

@@ -28,7 +28,35 @@ def main() -> None:
     passkeys = sub.add_parser("passkeys", help="manage passkey (fingerprint) approval checks")
     passkeys_sub = passkeys.add_subparsers(dest="passkeys_command", required=True)
     passkeys_sub.add_parser("reset", help="forget all passkeys and stop requiring them (stop Hilait first)")
+    updater = sub.add_parser("updater", help="set up in-app updates (Linux systemd, run with sudo)")
+    updater_sub = updater.add_subparsers(dest="updater_command", required=True)
+    install = updater_sub.add_parser("install", help="install the root update helper for the Hilait service")
+    install.add_argument("--unit", default="hilait.service", help="systemd unit that runs Hilait")
+    install.add_argument("--user", help="service account (default: read from the unit)")
+    install.add_argument("--data-dir", help="Hilait data directory (default: read from the unit)")
+    install.add_argument("--health-url", help="local health URL (default: built from the unit's --port/--lan)")
+    remove = updater_sub.add_parser("uninstall", help="remove the update helper")
+    remove.add_argument("--unit", default="hilait.service")
+    remove.add_argument("--data-dir")
     args = parser.parse_args()
+    if args.command == "updater":
+        import os
+        import sys
+        from .updates import detect, install_updater, uninstall_updater
+        if not sys.platform.startswith("linux") or not hasattr(os, "geteuid") or os.geteuid() != 0:
+            parser.error("Run this on the Linux server with sudo, e.g. `sudo hilait updater install`.")
+        found = detect(args.unit)
+        data_dir = args.data_dir or found["data_dir"]
+        if args.updater_command == "uninstall":
+            uninstall_updater(data_dir)
+            print("Hilait updater removed.")
+            return
+        written = install_updater(unit=args.unit, python=sys.executable, user=args.user or found["user"],
+                                  data_dir=data_dir, health_url=args.health_url or found["health_url"])
+        print("Hilait updater installed:\n  " + "\n  ".join(written))
+        print(f"Service {args.unit}, data {data_dir}, health {args.health_url or found['health_url']}.")
+        print("Open Settings → Updates in Hilait to install new versions.")
+        return
     if args.command == "mcp":
         from .mcp_server import build_mcp
         build_mcp(args.server, args.ca_cert).run(transport="stdio")

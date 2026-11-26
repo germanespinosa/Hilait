@@ -16,6 +16,7 @@
     if ((match = path.match(/^\/api\/authorizations\/([^/]+)\/extend$/))) return {action: 'authorization_extend', target: id(match[1])};
     if ((match = path.match(/^\/api\/authorizations\/([^/]+)\/file-access$/))) return {action: 'authorization_file_access', target: id(match[1]), file_access: body?.file_access};
     if ((match = path.match(/^\/api\/agent-enrollment\/([^/]+)\/approve$/))) return {action: 'agent_token_approve', target: id(match[1])};
+    if (path === '/api/update') return {action: 'hilait_update', target: String(body?.version || '')};
     return null;
   }
 

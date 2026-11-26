@@ -10,7 +10,7 @@
   const fragment = new URLSearchParams(location.hash.slice(1));
   if (fragment.get('token')) { token = fragment.get('token'); sessionStorage.setItem('hilait-token', token); }
   // Notification links such as /#settings=agents open a settings tab after sign-in.
-  let pendingSettingsTab = ['agents','authorizations'].includes(fragment.get('settings')) ? fragment.get('settings') : null;
+  let pendingSettingsTab = ['agents','authorizations','updates'].includes(fragment.get('settings')) ? fragment.get('settings') : null;
   if (location.hash) history.replaceState(null, '', location.pathname);
   let state = null, selectedProfile = null, selectedSession = null, terminal = null, terminalSocket = null, eventsSocket = null, currentFile = null, currentFilePath = '/', contextMenu = null;
   const authorizationFilters = {agent: '', machine: ''};
@@ -268,7 +268,7 @@
   async function uploadFile(file) { if (!selectedSession) return; const path = currentFilePath.replace(/\/$/,'') + '/' + file.name; let offset = 0; if (file.size === 0) await api(`/api/sessions/${selectedSession}/files`, 'POST', {action:'write',path,base64:''}); while (offset < file.size) { const bytes = new Uint8Array(await file.slice(offset, offset + 262144).arrayBuffer()); let raw = ''; bytes.forEach(byte => raw += String.fromCharCode(byte)); await api(`/api/sessions/${selectedSession}/files`, 'POST', {action:'write',path,base64:btoa(raw),overwrite:offset > 0,offset}); offset += bytes.length; status(`Uploading ${file.name}: ${Math.round(offset/file.size*100)}%`); } await loadFiles(); status(`Uploaded ${file.name}`); }
   async function downloadFile() { if (!currentFile || currentFile.directory || !selectedSession) return; const path = currentFilePath.replace(/\/$/,'') + '/' + currentFile.name; const pieces = []; for(let offset=0;;){ const result = await api(`/api/sessions/${selectedSession}/files`, 'POST', {action:'read',path,offset,count:262144}); const bytes = Uint8Array.from(atob(result.base64), char=>char.charCodeAt(0)); pieces.push(bytes); offset+=bytes.length; if(bytes.length<262144)break; } const url=URL.createObjectURL(new Blob(pieces)); const a=document.createElement('a'); a.href=url; a.download=currentFile.name; a.click(); setTimeout(()=>URL.revokeObjectURL(url),5000); }
 
-  function settings(tab='agents') { openModal(head('Settings')+`<div class="settings-layout"><nav class="settings-nav" aria-label="Settings sections"><button data-tab="appearance">Appearance</button><button data-tab="agents">Agent Access</button><button data-tab="authorizations">Authorizations</button><button data-tab="review">Activity review</button><button data-tab="storage">Activity storage</button><button data-tab="transfers">File transfers</button><button data-tab="notifications">Notifications</button><button data-tab="otp">Authenticator</button><button data-tab="passkeys">Passkeys</button></nav><div id="settings-content"></div></div>`, false, 'tall'); $('#modal .settings-nav').onclick = event => { const next=event.target.dataset.tab; if(next) settingsTab(next); }; settingsTab(tab); }
+  function settings(tab='agents') { openModal(head('Settings')+`<div class="settings-layout"><nav class="settings-nav" aria-label="Settings sections"><button data-tab="appearance">Appearance</button><button data-tab="agents">Agent Access</button><button data-tab="authorizations">Authorizations</button><button data-tab="review">Activity review</button><button data-tab="storage">Activity storage</button><button data-tab="transfers">File transfers</button><button data-tab="notifications">Notifications</button><button data-tab="otp">Authenticator</button><button data-tab="passkeys">Passkeys</button><button data-tab="updates">Updates</button></nav><div id="settings-content"></div></div>`, false, 'tall'); $('#modal .settings-nav').onclick = event => { const next=event.target.dataset.tab; if(next) settingsTab(next); }; settingsTab(tab); }
   function agentAccessSettings(box) {
     const requests=state.tokenRequests||[];
     const setup={mcpServers:{hilait:{command:'hilait',args:['mcp','--server',location.origin]}}};
@@ -314,12 +314,92 @@
       box.onclick=e=>{const button=e.target.closest('[data-extend],[data-file-access],[data-revoke]');if(!button)return;const id=button.dataset.extend||button.dataset.fileAccess||button.dataset.revoke;if(button.dataset.extend)extendAuthorizationDialog(id);else if(button.dataset.fileAccess)changeAuthorizationFileAccessDialog(id);else confirmDialog('Revoke authorization','This also ends the agent’s active access.', 'Revoke access',()=>api(`/api/authorizations/${id}/revoke`,'POST',{}),()=>settings('authorizations'));};
     }
     else if(tab==='passkeys'){passkeySettings();}
+    else if(tab==='updates'){updateSettings();}
     else if(tab==='otp'){otpSettings();}
     else if(tab==='notifications'){notificationSettings();}
     else if(tab==='storage'){activityStorageSettings();}
     else if(tab==='transfers'){transferSettings(transferPath);}
     else {reviewSettings();}
   }
+  // ---- Settings → Updates: release list, version choice, guided install and restart ----
+  const UPDATE_PHASES=[['queued','Waiting for the updater'],['checking','Checking the release'],['installing','Installing'],['restarting','Restarting Hilait'],['reconnecting','Reconnecting'],['done','Done']];
+  let updateWatch=null;
+  async function updateSettings(refreshList=false){
+    const box=$('#settings-content');box.innerHTML='<p>Checking for updates…</p>';
+    let data;try{data=await api('/api/update'+(refreshList?'?refresh=true':''));}catch(error){box.innerHTML=`<p class="error">${escaped(error.message)}</p>`;return;}
+    if(!box.isConnected||!$('#modal .settings-nav button[data-tab="updates"]')?.classList.contains('active'))return;
+    const releases=data.releases||[],newer=releases.filter(r=>r.newer),status=data.status||{};
+    const active=['queued','checking','installing','restarting','rolling_back'].includes(status.phase);
+    const recentFailure=status.phase==='failed'&&Date.now()/1000-(status.updated||0)<86400;
+    const defaultVersion=data.latest||data.current;
+    const label=r=>`${r.version}${r.version===data.latest?' — latest':''}${r.current?' — installed':''}${!r.newer&&!r.current?' — older':''}`;
+    box.innerHTML=`<h3 class="settings-heading">Updates</h3>
+      <div class="update-summary"><div><span class="setting-hint">Installed</span><strong>Hilait ${escaped(data.current)}</strong><small>Build ${escaped(data.build||'')}</small></div>
+        <div><span class="setting-hint">Latest</span><strong>${escaped(data.latest||'unknown')}</strong><small>${newer.length?`${newer.length} update${newer.length>1?'s':''} available`:'You are up to date'}</small></div></div>
+      ${data.error?`<p class="review-status" role="status">${escaped(data.error)}</p>`:''}
+      ${active?`<div class="update-banner" role="status"><span>Updating to ${escaped(status.version||'')} — ${escaped(status.message||status.phase)}</span><button id="update-show-progress">Show progress</button></div>`:''}
+      ${recentFailure?`<div class="review-status" role="alert"><strong>Last update did not complete.</strong> ${escaped(status.message||'')}${status.log?`<details><summary>Installer output</summary><pre class="code">${escaped(status.log)}</pre></details>`:''}</div>`:''}
+      ${!data.supported?`<p class="setting-hint">In-app updates need Hilait running as a Linux systemd service. Update this installation with <code>python -m pip install --upgrade</code>.</p>`:!data.updater?`<div class="setting-row"><strong>One-time setup</strong><p class="setting-hint">Hilait runs as an unprivileged service and cannot reinstall itself. Run this once on the server to add the small root helper that installs the version you choose and restarts Hilait:</p><div class="code config-snippet">${escaped(data.setup_command)}</div><div class="actions"><button id="copy-update-setup">Copy command</button><button id="update-recheck" class="primary">I ran it — check again</button></div></div>`:''}
+      ${releases.length?`<form id="update-form" class="update-form"><label>Version<select name="version">${releases.map(r=>`<option value="${escaped(r.version)}">${escaped(label(r))}</option>`).join('')}</select></label>
+        <div class="actions"><button type="button" id="update-check">Check for updates</button><button type="submit" id="update-submit" class="primary">Update</button></div><p id="update-hint" class="setting-hint"></p></form>`:''}
+      <h3 class="settings-heading release-heading">Release notes</h3>
+      <div class="release-list">${releases.map(r=>`<article class="release-card${r.current?' current':''}${r.newer?' newer':''}" data-release="${escaped(r.version)}"><header><strong>${escaped(r.version)}</strong>${r.current?'<span class="release-badge">Installed</span>':r.newer?'<span class="release-badge new">New</span>':''}<time>${escaped(r.date)}</time></header>${r.notes.length?`<ul>${r.notes.map(n=>`<li>${escaped(n)}</li>`).join('')}</ul>`:'<p class="setting-hint">No notes.</p>'}</article>`).join('')||'<p class="setting-hint">The release list is unavailable.</p>'}</div>`;
+    $('#update-show-progress')?.addEventListener('click',()=>watchUpdate(status.version));
+    $('#copy-update-setup')?.addEventListener('click',()=>action(async()=>{await navigator.clipboard.writeText(data.setup_command);toast('Setup command copied');}));
+    $('#update-recheck')?.addEventListener('click',()=>updateSettings(true));
+    const form=$('#update-form');if(!form)return;
+    $('#update-check').onclick=()=>updateSettings(true);
+    const select=form.version;select.value=defaultVersion;
+    const describe=()=>{const r=releases.find(x=>x.version===select.value)||{},button=$('#update-submit');
+      button.disabled=r.current||!data.updater||active;button.textContent=r.current?'Installed':r.newer?`Update to ${r.version}`:`Switch to ${r.version}`;button.classList.toggle('danger',!r.newer&&!r.current);button.classList.toggle('primary',!!r.newer);
+      $('#update-hint').textContent=!data.updater?'Finish the one-time setup above first.':r.current?'This version is already running.':!r.newer?(r.self_updating?'This is an older version. You can come back to a newer one here at any time.':'This older version has no Updates section. Returning to a newer version will need the command line on the server.'):'';
+      document.querySelectorAll('.release-card').forEach(card=>card.classList.toggle('selected',card.dataset.release===select.value));};
+    select.onchange=describe;describe();
+    form.onsubmit=event=>{event.preventDefault();confirmUpdate(data,releases.find(x=>x.version===select.value));};
+  }
+  function confirmUpdate(data,release){
+    if(!release)return;const older=!release.newer;
+    const losses=[data.open_sessions?`${data.open_sessions} open SSH session${data.open_sessions>1?'s':''} will close.`:'',data.active_grants?`${data.active_grants} active agent access grant${data.active_grants>1?'s':''} will end; agents must request access again.`:''].filter(Boolean);
+    openModal(head(older?`Switch to Hilait ${release.version}`:`Update Hilait to ${release.version}`)+`<form id="update-confirm"><p class="confirm-copy">Hilait will install ${escaped(release.version)} and restart. ${release.self_updating?'You stay signed in, and this page reconnects by itself.':'This version predates session hand-off, so you will sign in again after the restart.'}</p>
+      ${losses.length?`<ul class="update-losses">${losses.map(l=>`<li>${escaped(l)}</li>`).join('')}</ul>`:''}
+      ${data.confirm==='code'?field('Authenticator code','code','','text','required inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6"'):''}
+      ${data.confirm==='passkey'?'<p class="setting-hint">You will confirm with your passkey.</p>':''}
+      <div class="actions"><button type="button" data-close>Cancel</button><button type="submit" class="${older?'danger':'primary'}">Install and restart</button></div></form>`,true);
+    const form=$('#update-confirm');form.querySelector('input')?.focus();
+    form.onsubmit=async event=>{event.preventDefault();const submit=form.querySelector('[type=submit]');submit.disabled=true;
+      try{await api('/api/update','POST',{version:release.version,...(form.code?{code:form.code.value.trim()}:{})});closeModal();watchUpdate(release.version);}
+      catch(error){submit.disabled=false;toast(error.message,true);}};
+  }
+  function updateOverlay(){let overlay=$('#update-overlay');if(!overlay){overlay=document.createElement('div');overlay.id='update-overlay';overlay.className='update-overlay';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-labelledby','update-overlay-title');document.body.appendChild(overlay);}return overlay;}
+  function renderUpdate(target,phase,message,log,final){
+    const order=UPDATE_PHASES.map(p=>p[0]),index=Math.max(0,order.indexOf(phase==='rolling_back'?'restarting':phase));
+    updateOverlay().innerHTML=`<div class="update-panel"><h2 id="update-overlay-title">${phase==='failed'?'Update did not complete':phase==='done'?'Hilait is updated':`Updating Hilait to ${escaped(target)}`}</h2>
+      ${phase==='failed'?'':`<ol class="update-steps">${UPDATE_PHASES.map(([key,text],i)=>`<li class="${i<index?'done':i===index?'current':''}">${escaped(text)}</li>`).join('')}</ol>`}
+      <p class="update-message" role="status">${escaped(message||'')}</p>
+      ${log?`<details><summary>Installer output</summary><pre class="code">${escaped(log)}</pre></details>`:''}
+      ${final?`<div class="actions"><button id="update-overlay-close" class="primary">Close</button></div>`:'<p class="setting-hint">Keep this page open. It reloads by itself when the new version answers.</p>'}</div>`;
+    $('#update-overlay-close')?.addEventListener('click',()=>{updateOverlay().remove();});
+  }
+  async function watchUpdate(target){
+    if(updateWatch)return;const started=Date.now();let lastPhase='queued',serverLost=false,sawDown=false;
+    closeModal();renderUpdate(target,'queued','Waiting for the updater service to pick up the request.');
+    const reloadWhenReady=async()=>{try{const response=await fetch('/health',{cache:'no-store'});if(!response.ok){sawDown=true;return false;}const health=await response.json();if(health.status==='ready'&&(health.version===target||(health.version===undefined&&sawDown))){renderUpdate(target,'reconnecting',`Hilait ${target} is running. Reloading…`);setTimeout(()=>location.reload(),800);return true;}}catch{sawDown=true;}return false;};
+    updateWatch=setInterval(async()=>{
+      if(Date.now()-started>15*60*1000){clearInterval(updateWatch);updateWatch=null;renderUpdate(target,'failed','The update is taking longer than expected. Check Settings → Updates or the server log (journalctl -u hilait-update).',null,true);return;}
+      let current;try{current=await rawApi('/api/update/status');}catch{serverLost=true;}
+      if(serverLost||!current){renderUpdate(target,'restarting','Hilait is restarting…');if(await reloadWhenReady()){clearInterval(updateWatch);updateWatch=null;}return;}
+      if(current.current===target&&(current.phase==='done'||serverLost||lastPhase==='restarting')){clearInterval(updateWatch);updateWatch=null;renderUpdate(target,'reconnecting',`Hilait ${target} is running. Reloading…`);setTimeout(()=>location.reload(),800);return;}
+      if(current.phase==='failed'&&(current.version===target)){clearInterval(updateWatch);updateWatch=null;renderUpdate(target,'failed',current.message,current.log,true);return;}
+      lastPhase=current.phase||lastPhase;renderUpdate(target,lastPhase,current.message);
+      if(lastPhase==='restarting'&&await reloadWhenReady()){clearInterval(updateWatch);updateWatch=null;}
+    },2000);
+  }
+  async function resumeUpdateWatch(){try{const s=await rawApi('/api/update/status');
+    // This page already runs the requested version: the update is finished even if the updater has not written "done" yet.
+    const arrived=s.version&&s.version===s.current&&['restarting','done'].includes(s.phase)&&Date.now()/1000-(s.updated||0)<300;
+    if(arrived){if(sessionStorage.getItem('hilait-updated')!==s.id){sessionStorage.setItem('hilait-updated',s.id);toast(`Hilait updated to ${s.current}`);}return;}
+    if(['queued','checking','installing','restarting','rolling_back'].includes(s.phase)&&s.version)watchUpdate(s.version);
+  }catch{}}
   async function activityStorageSettings(){
     const box=$('#settings-content');box.innerHTML='<p>Loading activity storage settings…</p>';
     let saved;try{saved=await api('/api/activity/settings');}catch(error){box.innerHTML=`<p class="error">${escaped(error.message)}</p>`;return;}
@@ -717,7 +797,7 @@
   function deleteLog(id){confirmDialog('Delete session log','Its recorded evidence and review will be permanently removed.','Delete log',()=>api(`/api/logs/${id}`,'DELETE'),showLogs);}
 
   function eventStream(){eventsSocket?.close();const socket=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/events`);eventsSocket=socket;socket.onopen=()=>socket.send(JSON.stringify({type:'auth',token}));socket.onmessage=async event=>{const data=JSON.parse(event.data);if(data.type==='state'){state=data.state;render();return;}if(data.type==='review_progress'){status(data.message);const line=$('#review-progress');if(line)line.textContent=data.message;return;}if(data.type==='sudo_request'){sudoModal(data.request);return;}await refresh();if(data.type==='agent_token_request') toast('Agent token request · Review in Settings → Agent Access');if(data.type.startsWith('agent_token_') && $('#modal .settings-nav button[data-tab="agents"]')?.classList.contains('active')) settingsTab('agents');if(data.type==='request'){const pending=state.grants.find(g=>g.access===data.grant.access&&g.state==='Pending');if(pending)requestModal(pending);}if(data.type==='session_opened'){selectedProfile=data.profile;selectedSession=data.session;render();}if(data.type==='access'&&data.grant.state==='Approved'&&data.grant.session){selectedProfile=data.grant.profile;selectedSession=data.grant.session;render();}};socket.onclose=e=>{if(eventsSocket!==socket)return;if(e.code===4401){login();return;}setTimeout(()=>{if(token)eventStream();},2500);};}
-  async function login(){try{await refresh();$('#login').classList.add('hidden');$('#otp-login').classList.add('hidden');$('#workspace').classList.remove('hidden');eventStream();if(pendingSettingsTab){const tab=pendingSettingsTab;pendingSettingsTab=null;settings(tab);}}catch(error){$('#workspace').classList.add('hidden');let otpEnabled=error.details?.detail?.code==='otp_required';if(!otpEnabled){try{otpEnabled=(await api('/api/auth/mode')).otp_enabled;}catch{}}if(otpEnabled){$('#login').classList.add('hidden');$('#otp-login').classList.remove('hidden');$('#otp-login-error').textContent='';let mode=null;try{mode=await api('/api/auth/mode');}catch{}const passkey=window.HilaitPasskey.offerSignIn(mode);$('#passkey-login').classList.toggle('hidden',!passkey);$('#otp-login-hint').textContent=passkey?'Or enter the code from your authenticator app.':'Enter the code from your authenticator app.';if(passkey)$('#passkey-login').focus();else $('#otp-login-code').focus();}else{$('#otp-login').classList.add('hidden');$('#login').classList.remove('hidden');$('#login-error').textContent=error.message;}}}
+  async function login(){try{await refresh();$('#login').classList.add('hidden');$('#otp-login').classList.add('hidden');$('#workspace').classList.remove('hidden');eventStream();resumeUpdateWatch();if(pendingSettingsTab){const tab=pendingSettingsTab;pendingSettingsTab=null;settings(tab);}}catch(error){$('#workspace').classList.add('hidden');let otpEnabled=error.details?.detail?.code==='otp_required';if(!otpEnabled){try{otpEnabled=(await api('/api/auth/mode')).otp_enabled;}catch{}}if(otpEnabled){$('#login').classList.add('hidden');$('#otp-login').classList.remove('hidden');$('#otp-login-error').textContent='';let mode=null;try{mode=await api('/api/auth/mode');}catch{}const passkey=window.HilaitPasskey.offerSignIn(mode);$('#passkey-login').classList.toggle('hidden',!passkey);$('#otp-login-hint').textContent=passkey?'Or enter the code from your authenticator app.':'Enter the code from your authenticator app.';if(passkey)$('#passkey-login').focus();else $('#otp-login-code').focus();}else{$('#otp-login').classList.add('hidden');$('#login').classList.remove('hidden');$('#login-error').textContent=error.message;}}}
   $('#login-button').onclick=()=>{token=$('#login-token').value.trim();sessionStorage.setItem('hilait-token',token);login();};$('#login-token').onkeydown=e=>{if(e.key==='Enter')$('#login-button').click();};
   $('#passkey-login').onclick=async()=>{$('#otp-login-error').textContent='';const button=$('#passkey-login');button.disabled=true;try{token=await window.HilaitPasskey.signIn(rawApi);sessionStorage.setItem('hilait-token',token);await login();}catch(error){$('#otp-login-error').textContent=error.message;}finally{button.disabled=false;}};
   $('#otp-login-form').onsubmit=async e=>{e.preventDefault();$('#otp-login-error').textContent='';try{const result=await api('/api/auth/verify','POST',{code:$('#otp-login-code').value});token=result.session;sessionStorage.setItem('hilait-token',token);$('#otp-login-code').value='';await login();}catch(error){$('#otp-login-error').textContent=error.message;$('#otp-login-code').select();}};

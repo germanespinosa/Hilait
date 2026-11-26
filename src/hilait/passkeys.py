@@ -35,7 +35,7 @@ MAX_PASSKEYS = 10
 POLICIES = ("off", "elevated", "all")
 # Actions that grant or widen access. Rejecting, pausing, and revoking never ask.
 ACTIONS = {"grant_approve", "sudo_approve", "authorization_create", "authorization_extend",
-           "authorization_file_access", "agent_token_approve"}
+           "authorization_file_access", "agent_token_approve", "hilait_update"}
 ALG_ES256, ALG_EDDSA, ALG_RS256 = -7, -8, -257
 FLAG_UP, FLAG_UV, FLAG_AT = 0x01, 0x04, 0x40
 

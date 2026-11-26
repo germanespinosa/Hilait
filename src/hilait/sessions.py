@@ -6,6 +6,7 @@ import asyncio
 import base64
 import hashlib
 import re
+import socket
 import threading
 import uuid
 from collections import deque
@@ -22,6 +23,21 @@ class HostKeyApprovalNeeded(Exception):
     def __init__(self, host: str, fingerprint: str, previous: str | None) -> None:
         super().__init__(f"Verify server key for {host}: {fingerprint}")
         self.host, self.fingerprint, self.previous = host, fingerprint, previous
+
+
+class SSHConnectionError(Exception):
+    """The machine could not be reached or refused the login (reported as HTTP 502)."""
+
+
+def _connection_problem(name: str, exc: BaseException) -> SSHConnectionError:
+    # Names only: hostnames and usernames never appear in messages agents might relay.
+    if isinstance(exc, paramiko.AuthenticationException):
+        return SSHConnectionError(f"{name} rejected the SSH login. Check the saved credentials.")
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return SSHConnectionError(f"{name} did not answer within 20 seconds. It may be off, rebooting or unreachable.")
+    if isinstance(exc, ConnectionRefusedError) or "Unable to connect" in str(exc):
+        return SSHConnectionError(f"{name} refused the SSH connection. Its SSH service may not be running.")
+    return SSHConnectionError(f"Could not open an SSH session on {name}: {type(exc).__name__}: {exc}".rstrip(": "))
 
 
 class _TrustPolicy(paramiko.MissingHostKeyPolicy):
@@ -106,6 +122,12 @@ class SessionManager:
                 channel = client.invoke_shell(term="xterm-256color", width=100, height=30)
                 channel.settimeout(1)
                 return client, channel
+            except HostKeyApprovalNeeded:
+                client.close()
+                raise
+            except (paramiko.SSHException, OSError, EOFError) as exc:
+                client.close()
+                raise _connection_problem(profile.get("name") or "The machine", exc) from exc
             except Exception:
                 client.close()
                 raise

@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.57** (connection form per platform),
+*Last reviewed for package version **0.1.58** (clear SSH connection errors),
 2026-11-14.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -130,7 +130,9 @@ Key wiring facts:
 * Blocking Paramiko and file I/O runs via `asyncio.to_thread`.
 * Errors map to HTTP codes through exception handlers: `KeyError→404`,
   `ValueError→400`, `PermissionError→403`, `RateLimitError→429`,
-  `HostKeyApprovalNeeded→409` (body carries host, fingerprint, previous).
+  `HostKeyApprovalNeeded→409` (body carries host, fingerprint, previous),
+  `SSHConnectionError→502` (`sessions._connection_problem`: unreachable, refused
+  or rejected SSH login, worded with the machine name only, never host/user).
   Domain code raises these built-ins rather than `HTTPException`.
 
 ---

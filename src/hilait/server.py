@@ -27,7 +27,7 @@ from .enrollment import AgentEnrollment
 from .files import FileService
 from .ntfy import NtfyNotifier
 from .review import AUTO_BATCH, ENDPOINTS, Reviewer
-from .sessions import HostKeyApprovalNeeded, SessionManager
+from .sessions import HostKeyApprovalNeeded, SessionManager, SSHConnectionError
 from .storage import Audit, Store
 from .passkeys import Passkeys
 from .remote_mcp import RemoteMCP
@@ -301,6 +301,10 @@ def create_app(root: Path | None = None) -> FastAPI:
     async def host_key_handler(request: Request, exc: HostKeyApprovalNeeded):
         return JSONResponse(status_code=409, content={"error": "Host key approval required",
                              "host": exc.host, "fingerprint": exc.fingerprint, "previous": exc.previous})
+
+    @app.exception_handler(SSHConnectionError)
+    async def ssh_connection_handler(request: Request, exc: SSHConnectionError):
+        return JSONResponse(status_code=502, content={"error": str(exc)})
 
     @app.exception_handler(PermissionError)
     async def permission_handler(request: Request, exc: PermissionError):

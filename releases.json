@@ -4,6 +4,7 @@
     {
       "version": "0.1.60",
       "date": "2026-11-27",
+      "commit": "2b2c8c6b47920e748e8928a7c300cecd399958ad",
       "notes": [
         "Connections can now use an uploaded private key file: choose Username and private key, then Upload a key file (OpenSSH or PEM; RSA, ECDSA or Ed25519).",
         "Uploaded keys are checked on save, stored encrypted, and never shown again; the form shows only the key type and fingerprint.",

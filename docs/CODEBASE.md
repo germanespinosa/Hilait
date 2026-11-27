@@ -6,8 +6,8 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.59** (in-app updates),
-2026-11-14.* Update this file
+*Last reviewed for package version **0.1.60** (uploaded SSH keys),
+2026-11-27.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
 
@@ -560,7 +560,8 @@ hilait serve --open          # local run on http://127.0.0.1:8765
   `test_tiered_access`, `test_transfers`, `test_review`, `test_storage`,
   `test_security_storage`, `test_admin_auth`, `test_agent_enrollment`,
   `test_ntfy`, `test_lan`, `test_mcp`, `test_build_info`,
-  `test_profile_shell`.
+  `test_profile_shell`, `test_uploaded_keys` (fixture accepts an optional
+  authorized_keys path for key login).
 * Versioning: bump `version` in `pyproject.toml` **and** `__version__` in
   `src/hilait/__init__.py` together on each user-visible change (history
   shows one bump per feature commit). `package.json`'s version is

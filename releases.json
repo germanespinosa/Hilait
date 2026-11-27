@@ -4,6 +4,7 @@
     {
       "version": "0.1.62",
       "date": "2026-11-27",
+      "commit": "52dc22b16c45fdf73ba58f581088d6cd1982cad0",
       "notes": [
         "Fixed \"Read-only file system\" when approving LocalTransfers on servers set up before transfer folders existed: the updater now lets the sandboxed service write its transfer folder.",
         "If it still happens, the error explains the one-time fix: `sudo /opt/hilait-venv/bin/hilait updater install`, then restart Hilait.",

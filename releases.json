@@ -4,6 +4,7 @@
     {
       "version": "0.1.61",
       "date": "2026-11-27",
+      "commit": "5aa10b61afb5b6ebc4ad2824204e267417c96b2e",
       "notes": [
         "Settings → Updates shows the ten newest releases; use Older and Newer to page through the rest.",
         "The version picker still lists every release, grouped into Recent and Older, and picking one opens its page of notes."

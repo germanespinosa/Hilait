@@ -48,7 +48,7 @@ Hilait prints one or more `https://<server-ip>:8765` addresses and a certificate
 
 ### Update Hilait from the browser
 
-**Settings → Updates** lists every release with the fixes it shipped, preselects the latest, and lets you install any version, including an older one. Hilait installs it, restarts, and the page shows the progress and reloads by itself; you stay signed in. Updates are confirmed with your passkey (when passkeys are on) or an authenticator code. Open SSH sessions close and active agent access ends during the restart.
+**Settings → Updates** lists every release with the fixes it shipped (the ten newest first, with **Older** and **Newer** to page through the rest), preselects the latest, and lets you install any version, including an older one. Hilait installs it, restarts, and the page shows the progress and reloads by itself; you stay signed in. Updates are confirmed with your passkey (when passkeys are on) or an authenticator code. Open SSH sessions close and active agent access ends during the restart.
 
 Because the service runs unprivileged, enable this once on a Linux systemd server:
 

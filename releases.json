@@ -2,6 +2,14 @@
   "repo": "germanespinosa/Hilait",
   "releases": [
     {
+      "version": "0.1.61",
+      "date": "2026-11-27",
+      "notes": [
+        "Settings → Updates shows the ten newest releases; use Older and Newer to page through the rest.",
+        "The version picker still lists every release, grouped into Recent and Older, and picking one opens its page of notes."
+      ]
+    },
+    {
       "version": "0.1.60",
       "date": "2026-11-27",
       "commit": "2b2c8c6b47920e748e8928a7c300cecd399958ad",

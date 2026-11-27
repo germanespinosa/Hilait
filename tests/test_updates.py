@@ -190,3 +190,10 @@ def test_installer_writes_units_and_marker(tmp_path):
 def test_passkey_step_covers_updates():
     script = (Path(updates_module.__file__).parent / "static" / "passkey.js").read_text()
     assert "path === '/api/update'" in script and "hilait_update" in script
+
+
+def test_release_notes_are_paged_ten_at_a_time():
+    script = (Path(__file__).resolve().parents[1] / "src/hilait/static/app.js").read_text()
+    assert "const RELEASE_PAGE=10;" in script
+    for marker in ('id="release-pager"', 'id="release-older"', 'id="release-newer"', 'releases.slice(page*RELEASE_PAGE'):
+        assert marker in script

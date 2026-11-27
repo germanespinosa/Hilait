@@ -361,6 +361,7 @@
   // ---- Settings → Updates: release list, version choice, guided install and restart ----
   const UPDATE_PHASES=[['queued','Waiting for the updater'],['checking','Checking the release'],['installing','Installing'],['restarting','Restarting Hilait'],['reconnecting','Reconnecting'],['done','Done']];
   let updateWatch=null;
+  const RELEASE_PAGE=10;
   async function updateSettings(refreshList=false){
     const box=$('#settings-content');box.innerHTML='<p>Checking for updates…</p>';
     let data;try{data=await api('/api/update'+(refreshList?'?refresh=true':''));}catch(error){box.innerHTML=`<p class="error">${escaped(error.message)}</p>`;return;}
@@ -377,10 +378,19 @@
       ${active?`<div class="update-banner" role="status"><span>Updating to ${escaped(status.version||'')} — ${escaped(status.message||status.phase)}</span><button id="update-show-progress">Show progress</button></div>`:''}
       ${recentFailure?`<div class="review-status" role="alert"><strong>Last update did not complete.</strong> ${escaped(status.message||'')}${status.log?`<details><summary>Installer output</summary><pre class="code">${escaped(status.log)}</pre></details>`:''}</div>`:''}
       ${!data.supported?`<p class="setting-hint">In-app updates need Hilait running as a Linux systemd service. Update this installation with <code>python -m pip install --upgrade</code>.</p>`:!data.updater?`<div class="setting-row"><strong>One-time setup</strong><p class="setting-hint">Hilait runs as an unprivileged service and cannot reinstall itself. Run this once on the server to add the small root helper that installs the version you choose and restarts Hilait:</p><div class="code config-snippet">${escaped(data.setup_command)}</div><div class="actions"><button id="copy-update-setup">Copy command</button><button id="update-recheck" class="primary">I ran it — check again</button></div></div>`:''}
-      ${releases.length?`<form id="update-form" class="update-form"><label>Version<select name="version">${releases.map(r=>`<option value="${escaped(r.version)}">${escaped(label(r))}</option>`).join('')}</select></label>
+      ${releases.length?`<form id="update-form" class="update-form"><label>Version<select name="version">${(()=>{const option=r=>`<option value="${escaped(r.version)}">${escaped(label(r))}</option>`;return releases.length>RELEASE_PAGE?`<optgroup label="Recent">${releases.slice(0,RELEASE_PAGE).map(option).join('')}</optgroup><optgroup label="Older">${releases.slice(RELEASE_PAGE).map(option).join('')}</optgroup>`:releases.map(option).join('');})()}</select></label>
         <div class="actions"><button type="button" id="update-check">Check for updates</button><button type="submit" id="update-submit" class="primary">Update</button></div><p id="update-hint" class="setting-hint"></p></form>`:''}
       <h3 class="settings-heading release-heading">Release notes</h3>
-      <div class="release-list">${releases.map(r=>`<article class="release-card${r.current?' current':''}${r.newer?' newer':''}" data-release="${escaped(r.version)}"><header><strong>${escaped(r.version)}</strong>${r.current?'<span class="release-badge">Installed</span>':r.newer?'<span class="release-badge new">New</span>':''}<time>${escaped(r.date)}</time></header>${r.notes.length?`<ul>${r.notes.map(n=>`<li>${escaped(n)}</li>`).join('')}</ul>`:'<p class="setting-hint">No notes.</p>'}</article>`).join('')||'<p class="setting-hint">The release list is unavailable.</p>'}</div>`;
+      <div class="release-list" id="release-list"></div><nav class="release-pager hidden" id="release-pager" aria-label="Release pages"><button type="button" id="release-newer">Newer</button><span id="release-page" class="setting-hint" aria-live="polite"></span><button type="button" id="release-older">Older</button></nav>`;
+    // Release notes show the ten newest versions; older ones are paged.
+    const pages=Math.max(1,Math.ceil(releases.length/RELEASE_PAGE));let page=0;
+    const card=r=>`<article class="release-card${r.current?' current':''}${r.newer?' newer':''}" data-release="${escaped(r.version)}"><header><strong>${escaped(r.version)}</strong>${r.current?'<span class="release-badge">Installed</span>':r.newer?'<span class="release-badge new">New</span>':''}<time>${escaped(r.date)}</time></header>${r.notes.length?`<ul>${r.notes.map(n=>`<li>${escaped(n)}</li>`).join('')}</ul>`:'<p class="setting-hint">No notes.</p>'}</article>`;
+    const showPage=next=>{page=Math.min(Math.max(next,0),pages-1);const shown=releases.slice(page*RELEASE_PAGE,(page+1)*RELEASE_PAGE);
+      $('#release-list').innerHTML=shown.map(card).join('')||'<p class="setting-hint">The release list is unavailable.</p>';
+      $('#release-pager').classList.toggle('hidden',pages<2);$('#release-newer').disabled=page===0;$('#release-older').disabled=page===pages-1;
+      $('#release-page').textContent=`Versions ${page*RELEASE_PAGE+1}–${page*RELEASE_PAGE+shown.length} of ${releases.length}`;
+      const chosen=$('#update-form')?.version.value;document.querySelectorAll('.release-card').forEach(c=>c.classList.toggle('selected',c.dataset.release===chosen));};
+    const turn=step=>{showPage(page+step);$('.release-heading')?.scrollIntoView({block:'start'});};$('#release-newer').onclick=()=>turn(-1);$('#release-older').onclick=()=>turn(1);showPage(0);
     $('#update-show-progress')?.addEventListener('click',()=>watchUpdate(status.version));
     $('#copy-update-setup')?.addEventListener('click',()=>action(async()=>{await navigator.clipboard.writeText(data.setup_command);toast('Setup command copied');}));
     $('#update-recheck')?.addEventListener('click',()=>updateSettings(true));
@@ -391,7 +401,7 @@
       button.disabled=r.current||!data.updater||active;button.textContent=r.current?'Installed':r.newer?`Update to ${r.version}`:`Switch to ${r.version}`;button.classList.toggle('danger',!r.newer&&!r.current);button.classList.toggle('primary',!!r.newer);
       $('#update-hint').textContent=!data.updater?'Finish the one-time setup above first.':r.current?'This version is already running.':!r.newer?(r.self_updating?'This is an older version. You can come back to a newer one here at any time.':'This older version has no Updates section. Returning to a newer version will need the command line on the server.'):'';
       document.querySelectorAll('.release-card').forEach(card=>card.classList.toggle('selected',card.dataset.release===select.value));};
-    select.onchange=describe;describe();
+    select.onchange=()=>{const index=releases.findIndex(r=>r.version===select.value);if(index>=0&&Math.floor(index/RELEASE_PAGE)!==page)showPage(Math.floor(index/RELEASE_PAGE));describe();};describe();
     form.onsubmit=event=>{event.preventDefault();confirmUpdate(data,releases.find(x=>x.version===select.value));};
   }
   function confirmUpdate(data,release){

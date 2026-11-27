@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.60** (uploaded SSH keys),
+*Last reviewed for package version **0.1.61** (paged release notes),
 2026-11-27.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -535,6 +535,9 @@ model.
   Windows connections in `updateTier` (account setup forced to single account,
   sudo password and approval hidden); the server separately refuses tiered
   Windows profiles and managed sudo on Windows.
+* Settings → Updates (`updateSettings`) pages release notes `RELEASE_PAGE` (10)
+  at a time; the version picker keeps every release (Recent / Older groups) and
+  choosing one jumps to its page.
 * Settings → File transfers (`transferSettings` in app.js) browses the
   transfer root with breadcrumbs, uploads/downloads/deletes items, and edits
   the root folder.

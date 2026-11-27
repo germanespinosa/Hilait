@@ -2,6 +2,16 @@
   "repo": "germanespinosa/Hilait",
   "releases": [
     {
+      "version": "0.1.60",
+      "date": "2026-11-27",
+      "notes": [
+        "Connections can now use an uploaded private key file: choose Username and private key, then Upload a key file (OpenSSH or PEM; RSA, ECDSA or Ed25519).",
+        "Uploaded keys are checked on save, stored encrypted, and never shown again; the form shows only the key type and fingerprint.",
+        "Wrong passphrases, public keys (.pub) and PuTTY .ppk files get a clear message instead of a failed login.",
+        "Connections with an unprotected uploaded key no longer ask for a passphrase when connecting."
+      ]
+    },
+    {
       "version": "0.1.59",
       "date": "2026-11-26",
       "notes": [

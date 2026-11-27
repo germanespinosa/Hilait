@@ -55,6 +55,7 @@ src/hilait/
   server.py        FastAPI app factory, Runtime wiring, all HTTP/WebSocket routes, agent tool dispatch, managed sudo
   storage.py       Store (encrypted JSON files, master key, agents) and Audit (hash-chained encrypted records)
   admin_auth.py    TOTP (RFC 6238) login, browser sessions, OTP seed lifecycle, rate limiting
+  keys.py          Parse/validate uploaded SSH private keys into Paramiko keys (in memory only)
   sessions.py      SSH sessions (Paramiko PTY), host-key trust policy, output buffer, screen snapshots
   files.py         Audited SFTP operations and collision-safe copy/upload/download
   security.py      ASGI middleware: security headers (frame/sniff/referrer/permissions, HSTS over HTTPS) and 2 MiB body limit
@@ -228,16 +229,29 @@ On the agent side, `hilait mcp` keeps its token/pending claim in
 
 A profile (in `connections.json`) contains: `id, name, host, port, username,
 platform (unix|windows),
-auth_method (password|key), private_key (server-side path), secret,
+auth_method (password|key), private_key (server-side path), private_key_data
+(uploaded key text, `Store.encrypt`ed), private_key_info ({type, fingerprint,
+encrypted}; not secret), secret,
 sudo_policy, sudo_secret, allowed_agent_ids (null = all agents),
 agent_idle_timeout_minutes (default 10, 0 = off), access_mode
 (legacy|tiered), normal_unprivileged_confirmed, elevated_username,
-elevated_auth_method, elevated_private_key, elevated_secret,
+elevated_auth_method, elevated_private_key, elevated_private_key_data,
+elevated_private_key_info, elevated_secret,
 elevated_sudo_secret, elevated_sudo_policy, elevated_allowed_agent_ids
 (explicit list, default empty), credential_revisions {legacy, normal,
 elevated}`.
 
-* `Store.public_profile` strips secrets (adds `has_saved_*` flags);
+* Uploaded keys (`keys.py`): `save_profile` takes `key_source` (upload|path)
+  and `private_key_upload` (PEM text, ≤32 KiB) per account
+  (`elevated_` prefix for the elevated one), validates it with
+  `describe_private_key` (OpenSSH/PKCS#1/SEC1/PKCS#8; RSA, ECDSA, Ed25519; a
+  wrong passphrase is rejected, a missing one is allowed and asked at
+  connect), and stores it with `Store.encrypt`. A new upload drops the saved
+  passphrase unless one is sent with it and bumps the tier's credential
+  revision. `SessionManager.open` decrypts and parses it in a worker thread
+  and passes `pkey=` to Paramiko; it is never written to disk.
+* `Store.public_profile` strips secrets and uploaded keys (adds
+  `has_saved_*` and `has_uploaded_key`/`has_uploaded_elevated_key` flags);
   `public_profile(agent=True)` exposes only id, name, platform,
   capabilities.
 * **Tiers**: `legacy` (single account; existing profiles), or for `tiered`
@@ -565,7 +579,8 @@ hilait serve --open          # local run on http://127.0.0.1:8765
 ## 14. Invariants to preserve when changing code
 
 1. Agents never receive hostnames, usernames, passwords, passphrases, sudo
-   passwords, or the admin token. `public_profile(agent=True)` is the only
+   passwords, private keys, or the admin token. Uploaded private keys are
+   never returned to the browser either and never touch disk unencrypted. `public_profile(agent=True)` is the only
    profile view agents get.
 2. Credentials are sent over SSH only after the host-key fingerprint matches
    a human-trusted value.

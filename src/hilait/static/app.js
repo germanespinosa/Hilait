@@ -117,6 +117,28 @@
     current.onResize = (columns, rows) => { if (socket.readyState === 1) socket.send(JSON.stringify({type:'resize', columns, rows})); };
     current.onStatus = status;
   }
+  function authMethod(profile, elevated) {
+    return elevated ? (profile.elevated_auth_method || (profile.elevated_private_key || profile.has_uploaded_elevated_key ? 'key' : 'password'))
+      : (profile.auth_method || (profile.private_key || profile.has_uploaded_key ? 'key' : 'password'));
+  }
+  // An uploaded key known to be unencrypted needs no passphrase prompt.
+  function secretKnown(profile, elevated) {
+    const info = elevated ? profile.elevated_private_key_info : profile.private_key_info;
+    const uploaded = elevated ? profile.has_uploaded_elevated_key : profile.has_uploaded_key;
+    return (elevated ? profile.has_saved_elevated_secret : profile.has_saved_secret)
+      || (authMethod(profile, elevated) === 'key' && uploaded && info?.encrypted === false);
+  }
+  function keyChoice(prefix, p) {
+    const elevated = prefix === 'elevated';
+    const name = elevated ? 'elevated_' : '';
+    const info = elevated ? p.elevated_private_key_info : p.private_key_info;
+    const uploaded = elevated ? p.has_uploaded_elevated_key : p.has_uploaded_key;
+    const saved = !uploaded ? '' : info?.type ? `Saved key: ${escaped(info.type)} · ${escaped(info.fingerprint)}${info.encrypted ? ' · passphrase-protected' : ''}. Choose a file only to replace it.`
+      : 'Saved key: passphrase-protected (type shown once its passphrase is saved). Choose a file only to replace it.';
+    return `<div class="full key-choice" id="${prefix}-key-path"><label>${elevated ? 'Elevated private key' : 'Private key'}<select name="${name}key_source"><option value="upload">Upload a key file</option><option value="path">Use a key file already on the Hilait server</option></select></label>
+      <div id="${prefix}-key-upload"><label>${elevated ? 'Elevated private key file' : 'Private key file'}<input type="file" name="${name}private_key_file"></label><p class="setting-hint">${saved || 'OpenSSH or PEM private key (RSA, ECDSA or Ed25519), for example id_ed25519. It is stored encrypted and never shown again.'}</p></div>
+      <div id="${prefix}-key-server">${field(elevated ? 'Elevated private key path on Hilait server' : 'Private key path on Hilait server', name + 'private_key', (elevated ? p.elevated_private_key : p.private_key) || '')}<p class="setting-hint">Enter a path readable by the Hilait service account.</p></div></div>`;
+  }
   function connect(profileId) {
     const profile = state.profiles.find(p => p.id === profileId); if (!profile) return;
     const tiered = profile.access_mode === 'tiered';
@@ -131,8 +153,8 @@
     const form = $('#connect-form');
     const update = () => {
       const elevated = form.privilege?.value === 'elevated';
-      const saved = elevated ? profile.has_saved_elevated_secret : profile.has_saved_secret;
-      const method = elevated ? (profile.elevated_auth_method || (profile.elevated_private_key ? 'key' : 'password')) : (profile.auth_method || (profile.private_key ? 'key' : 'password'));
+      const method = authMethod(profile, elevated);
+      const saved = secretKnown(profile, elevated);
       $('#connect-secret-label').classList.toggle('hidden', saved);
       $('#connect-secret-label span').textContent = method === 'key' ? 'Private-key passphrase' : 'SSH password';
       $('#connect-secret-hint').classList.toggle('hidden', saved || method !== 'key');
@@ -145,7 +167,7 @@
     update();
     const openSession = async (retrying = false) => {
       const privilege = form.privilege?.value || 'legacy';
-      const saved = privilege === 'elevated' ? profile.has_saved_elevated_secret : profile.has_saved_secret;
+      const saved = secretKnown(profile, privilege === 'elevated');
       const button = form.querySelector('[type="submit"]'); button.disabled = true;
       $('#connect-error').classList.add('hidden');
       try {
@@ -183,7 +205,7 @@
         <h3 class="full" id="primary-account-heading">SSH account</h3>
         ${field('SSH username','username',p.username,'text','required')}
         <label>Authentication<select name="auth_method"><option value="password">Username and password</option><option value="key">Username and private key</option></select></label>
-        <div class="full" id="primary-key-path">${field('Private key path on Hilait server','private_key',p.private_key || '')}<p class="setting-hint">Enter a path readable by the Hilait service account.</p></div>
+        ${keyChoice('primary', p)}
         <div class="full" id="primary-login-secret">${field('Save SSH password','secret','','password','autocomplete="new-password"')}</div>
         <label id="account-setup">Account setup<select name="access_mode"><option value="legacy">Single SSH account</option><option value="tiered">Separate normal and elevated accounts</option></select></label>
         <label class="toggle full" id="normal-confirm">I confirm the normal SSH account cannot elevate itself on the host<input name="normal_unprivileged_confirmed" type="checkbox" ${p.normal_unprivileged_confirmed?'checked':''}></label>
@@ -192,7 +214,7 @@
         <label id="primary-agent-label">Agents allowed to request this account<select name="agent_access"><option value="all">All agents, including future agents</option><option value="selected">Selected agents only</option></select></label>
         <div class="full" id="agent-choices">${agentChoices(p.allowed_agent_ids)}</div>
         <div class="full" id="elevated-fields"><h3>Elevated SSH account</h3><p class="setting-hint">Optional separate Unix account. Agents are denied by default; grant them elevated eligibility below. Normal sessions cannot use managed sudo, and the normal host account must lack sudo/admin rights.</p>
-          <div class="form-grid">${field('Elevated username','elevated_username',p.elevated_username||'')}<label>Elevated authentication<select name="elevated_auth_method"><option value="password">Username and password</option><option value="key">Username and private key</option></select></label><div class="full" id="elevated-key-path">${field('Elevated private key path on Hilait server','elevated_private_key',p.elevated_private_key||'')}</div><div class="full" id="elevated-login-secret">${field('Save elevated SSH password','elevated_secret','','password','autocomplete="new-password"')}</div>${field(`Elevated sudo password (optional${p.has_saved_elevated_sudo_secret?', saved value kept if blank':''})`,'elevated_sudo_secret','','password','autocomplete="new-password"')}
+          <div class="form-grid">${field('Elevated username','elevated_username',p.elevated_username||'')}<label>Elevated authentication<select name="elevated_auth_method"><option value="password">Username and password</option><option value="key">Username and private key</option></select></label>${keyChoice('elevated', p)}<div class="full" id="elevated-login-secret">${field('Save elevated SSH password','elevated_secret','','password','autocomplete="new-password"')}</div>${field(`Elevated sudo password (optional${p.has_saved_elevated_sudo_secret?', saved value kept if blank':''})`,'elevated_sudo_secret','','password','autocomplete="new-password"')}
           <label>Elevated sudo approval<select name="elevated_sudo_policy"><option value="per_request">Every request</option><option value="per_connection">Once per connection</option><option value="per_authorization">Once per authorization period</option><option value="never">Automatic</option></select></label></div>
           <strong>Agents eligible to request elevated access</strong><div id="elevated-agent-choices">${agentChoices(p.elevated_allowed_agent_ids)}</div>
         </div>
@@ -214,16 +236,31 @@
     showTab('details');
     form.sudo_policy.value = p.sudo_policy || 'per_request'; form.elevated_sudo_policy.value = p.elevated_sudo_policy || 'per_request';
     form.access_mode.value = p.access_mode || 'legacy';
-    form.auth_method.value = p.auth_method || (p.private_key ? 'key' : 'password');
-    form.elevated_auth_method.value = p.elevated_auth_method || (p.elevated_private_key ? 'key' : 'password');
-    const updateAuth = () => { for (const [prefix, methodName, keyName] of [['primary','auth_method','private_key'],['elevated','elevated_auth_method','elevated_private_key']]) { const key=form[methodName].value==='key'; $(`#${prefix}-key-path`).classList.toggle('hidden',!key); form[keyName].required=key && (prefix==='primary' || (form.access_mode.value==='tiered' && !!form.elevated_username.value.trim())); const saved=prefix==='primary'?p.has_saved_secret:p.has_saved_elevated_secret; const original=prefix==='primary'?(p.auth_method || (p.private_key?'key':'password')):(p.elevated_auth_method || (p.elevated_private_key?'key':'password')); $(`#${prefix}-login-secret label`).firstChild.textContent=`${prefix==='elevated'?(key?'Elevated private-key passphrase':'Elevated SSH password'):(key?'Private-key passphrase':'SSH password')} (optional${saved && original===form[methodName].value?', saved value kept if blank':''})`; } };
+    form.auth_method.value = authMethod(p, false);
+    form.elevated_auth_method.value = authMethod(p, true);
+    form.key_source.value = p.has_uploaded_key || !p.private_key ? 'upload' : 'path';
+    form.elevated_key_source.value = p.has_uploaded_elevated_key || !p.elevated_private_key ? 'upload' : 'path';
+    const updateAuth = () => { for (const [prefix, name] of [['primary',''],['elevated','elevated_']]) {
+      const elevated=prefix==='elevated'; const method=form[name+'auth_method'].value; const key=method==='key';
+      const needed=!elevated || (form.access_mode.value==='tiered' && !!form.elevated_username.value.trim());
+      const original=authMethod(p, elevated); const upload=form[name+'key_source'].value==='upload';
+      const fileInput=form[name+'private_key_file']; const replacing=key && upload && fileInput.files.length>0;
+      const uploadedBefore=(elevated?p.has_uploaded_elevated_key:p.has_uploaded_key) && original==='key';
+      $(`#${prefix}-key-path`).classList.toggle('hidden',!key);
+      $(`#${prefix}-key-upload`).classList.toggle('hidden',!upload); $(`#${prefix}-key-server`).classList.toggle('hidden',upload);
+      form[name+'private_key'].required=key && !upload && needed;
+      fileInput.required=key && upload && needed && !uploadedBefore;
+      const saved=(elevated?p.has_saved_elevated_secret:p.has_saved_secret) && original===method && !replacing;
+      $(`#${prefix}-login-secret label`).firstChild.textContent=`${elevated?(key?'Elevated private-key passphrase':'Elevated SSH password'):(key?'Private-key passphrase':'SSH password')} (optional${saved?', saved value kept if blank':replacing?', the previous passphrase is not kept':''})`;
+    } };
+    for (const name of ['','elevated_']) { form[name+'key_source'].onchange=updateAuth; form[name+'private_key_file'].onchange=updateAuth; }
     form.auth_method.onchange=()=>{form.secret.value='';updateAuth();}; form.elevated_auth_method.onchange=()=>{form.elevated_secret.value='';updateAuth();}; form.elevated_username.oninput=updateAuth;
     form.agent_access.value = p.allowed_agent_ids === null || p.allowed_agent_ids === undefined ? 'all' : 'selected';
     const updateChoices = () => $('#agent-choices').classList.toggle('hidden', form.agent_access.value === 'all'); form.agent_access.onchange = updateChoices; updateChoices();
     const updateTier = () => { const windows=form.platform.value==='windows'; if(windows) form.access_mode.value='legacy'; $('#account-setup').classList.toggle('hidden',windows); const tiered=form.access_mode.value==='tiered'; $('#primary-account-heading').textContent=tiered?'Normal SSH account':'SSH account'; $('#primary-agent-label').firstChild.textContent=tiered?'Agents allowed to request normal access':'Agents allowed to request this account'; $('#normal-confirm').classList.toggle('hidden',!tiered); $('#single-sudo').classList.toggle('hidden',tiered||windows); $('#elevated-fields').classList.toggle('hidden',!tiered); form.normal_unprivileged_confirmed.required=tiered; updateAuth(); };
     form.access_mode.onchange=updateTier; form.platform.onchange=updateTier; updateTier();
     form.username.oninput=()=>{if(p.username&&form.username.value!==p.username)form.normal_unprivileged_confirmed.checked=false;};
-    form.onsubmit = event => { event.preventDefault(); const invalid=[...form.elements].find(input=>input.willValidate&&!input.checkValidity()); if(invalid){showTab(invalid.closest('[data-connection-panel]')?.dataset.connectionPanel||'details');invalid.reportValidity();return;} const data = formData(form); data.id = p.id; data.port = Number(data.port); data.agent_idle_timeout_minutes = Number(data.agent_idle_timeout_minutes); data.allowed_agent_ids = data.agent_access === 'all' ? null : [...$('#agent-choices').querySelectorAll('input:checked')].map(el => el.value); data.elevated_allowed_agent_ids=[...$('#elevated-agent-choices').querySelectorAll('input:checked')].map(el=>el.value); data.normal_unprivileged_confirmed=form.normal_unprivileged_confirmed.checked; delete data.agent_access; for(const key of ['secret','sudo_secret','elevated_secret','elevated_sudo_secret'])if(!data[key])delete data[key]; action(async () => { const saved = await api('/api/profiles', 'POST', data); selectedProfile = saved.id; closeModal(); }); };
+    form.onsubmit = event => { event.preventDefault(); const invalid=[...form.elements].find(input=>input.willValidate&&!input.checkValidity()); if(invalid){showTab(invalid.closest('[data-connection-panel]')?.dataset.connectionPanel||'details');invalid.reportValidity();return;} const data = formData(form); data.id = p.id; data.port = Number(data.port); data.agent_idle_timeout_minutes = Number(data.agent_idle_timeout_minutes); data.allowed_agent_ids = data.agent_access === 'all' ? null : [...$('#agent-choices').querySelectorAll('input:checked')].map(el => el.value); data.elevated_allowed_agent_ids=[...$('#elevated-agent-choices').querySelectorAll('input:checked')].map(el=>el.value); data.normal_unprivileged_confirmed=form.normal_unprivileged_confirmed.checked; delete data.agent_access; for(const key of ['secret','sudo_secret','elevated_secret','elevated_sudo_secret'])if(!data[key])delete data[key]; action(async () => { for (const name of ['','elevated_']) { delete data[name+'private_key_file']; const file=form[name+'private_key_file'].files[0]; if (data[name+'auth_method']==='key' && data[name+'key_source']==='upload' && file) { if (file.size>32768) throw new Error('That file is too large to be an SSH private key.'); data[name+'private_key_upload']=await file.text(); } } const saved = await api('/api/profiles', 'POST', data); selectedProfile = saved.id; closeModal(); }); };
     requestAnimationFrame(()=>form.querySelector('[name="name"]')?.focus());
   }
 

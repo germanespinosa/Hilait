@@ -16,6 +16,7 @@ from typing import Callable
 
 import paramiko
 
+from .keys import KeyPassphraseNeeded, load_private_key
 from .storage import Audit, Store, utc_now
 
 
@@ -105,9 +106,17 @@ class SessionManager:
     async def open(self, profile: dict, *, secret: str | None = None, owner: str = "You",
                    purpose: str = "Manual session", grant_id: str | None = None) -> Session:
         credential = secret if secret is not None else self.store.decrypt(profile.get("secret"))
-        auth_method = profile.get("auth_method", "key" if profile.get("private_key") else "password")
-        if auth_method not in {"password", "key"} or (auth_method == "key" and not profile.get("private_key")):
+        key_data = profile.get("private_key_data")
+        auth_method = profile.get("auth_method", "key" if profile.get("private_key") or key_data else "password")
+        if auth_method not in {"password", "key"} or (auth_method == "key" and not (key_data or profile.get("private_key"))):
             raise ValueError("Invalid SSH authentication setup for this connection.")
+        pkey = None
+        if auth_method == "key" and key_data:
+            # Uploaded key: decrypted and parsed in memory only, never written to disk.
+            try:
+                pkey = await asyncio.to_thread(load_private_key, self.store.decrypt(key_data), credential or None)
+            except KeyPassphraseNeeded as exc:
+                raise ValueError("This connection's private key is encrypted. Enter its passphrase to connect.") from exc
 
         def connect() -> tuple[paramiko.SSHClient, paramiko.Channel]:
             client = paramiko.SSHClient()
@@ -116,7 +125,8 @@ class SessionManager:
                 client.connect(profile["host"], port=int(profile.get("port", 22)), username=profile["username"],
                                password=(credential or None) if auth_method == "password" else None,
                                passphrase=(credential or None) if auth_method == "key" else None,
-                               key_filename=profile.get("private_key") if auth_method == "key" else None,
+                               pkey=pkey,
+                               key_filename=profile.get("private_key") if auth_method == "key" and pkey is None else None,
                                allow_agent=False, look_for_keys=False, timeout=20, auth_timeout=20, banner_timeout=20)
                 # The session uses the account's own login shell, exactly as `ssh` would.
                 channel = client.invoke_shell(term="xterm-256color", width=100, height=30)

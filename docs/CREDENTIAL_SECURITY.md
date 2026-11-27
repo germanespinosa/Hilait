@@ -26,6 +26,7 @@ this root boundary.
 | Data | At-rest protection |
 | --- | --- |
 | Saved machine names, hosts, usernames, settings, and trusted SSH host fingerprints | The complete `connections.json` and `known-hosts.json` records use Fernet authenticated encryption with a key derived from the active 160-bit OTP seed. The seed is itself encrypted under the master key. |
+| Uploaded SSH private key | The key file's text is encrypted under the master key, like a saved password, and stored inside the encrypted connection profile. It is never returned by the profile API (only its type, SHA-256 fingerprint and whether it is passphrase-protected), is parsed only in memory when a session opens, and is never written to disk unencrypted. A passphrase-protected key keeps its own encryption too. |
 | Saved SSH password or private-key passphrase, saved sudo password | Each secret is encrypted under the independent 256-bit random master key, then stored inside the encrypted connection profile. Neither the password nor passphrase is returned by the profile API. |
 | Machine authorizations | The complete `authorizations.json` record uses the OTP-seed-derived connection key. |
 | Agent tokens | `agents.json` contains a SHA-256 lookup hash and a master-key-encrypted copy of each token. The full token is returned only when an administrator explicitly copies its configuration. |
@@ -55,7 +56,8 @@ restarting Hilait invalidates those old in-memory sessions. Protect or rotate
 old journal archives according to their retention policy.
 
 An SSH private-key **path** saved in a machine profile refers to a separate
-file. Hilait does not import or encrypt that file. If private-key login is
+file. Hilait does not import or encrypt that file (upload the key in the
+connection form instead if you want Hilait to keep it encrypted). If private-key login is
 used, place the key in a service-owned directory such as
 `/var/lib/hilait/keys`, mode `0600`, and select that path in the connection.
 The hardened service cannot read keys under `/root` or other users' home

@@ -6,6 +6,8 @@ import shlex
 import asyncssh
 
 root = pathlib.Path(sys.argv[1]).resolve()
+# Optional second argument: an authorized_keys file enabling public-key login for harbor-test.
+authorized = sys.argv[2] if len(sys.argv) > 2 else None
 root.mkdir(parents=True, exist_ok=True)
 
 class Server(asyncssh.SSHServer):
@@ -13,6 +15,8 @@ class Server(asyncssh.SSHServer):
         return True
     def password_auth_supported(self):
         return True
+    def public_key_auth_supported(self):
+        return authorized is not None
     def validate_password(self, username, password):
         return username == 'harbor-test' and password == 'loopback-fixture-only'
 
@@ -52,6 +56,7 @@ async def main():
     server = await asyncssh.create_server(Server, '127.0.0.1', 0,
         server_host_keys=[asyncssh.generate_private_key('ssh-ed25519')],
         process_factory=shell,
+        **({"authorized_client_keys": authorized} if authorized else {}),
         sftp_factory=lambda channel: asyncssh.SFTPServer(channel, chroot=str(root)))
     print(server.get_port(), flush=True)
     await asyncio.Future()

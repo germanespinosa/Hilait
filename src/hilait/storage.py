@@ -251,8 +251,11 @@ class Store:
                 "platform": profile.get("platform", "unix"),
                 "capabilities": ["terminal", "files"] + ([] if profile.get("platform") == "windows" else ["sudo", "chmod", "symlink"]),
             }
-        return {**{k: v for k, v in profile.items() if k not in {"secret", "sudo_secret", "elevated_secret", "elevated_sudo_secret"}},
+        return {**{k: v for k, v in profile.items() if k not in {"secret", "sudo_secret", "elevated_secret", "elevated_sudo_secret",
+                                                                 "private_key_data", "elevated_private_key_data"}},
                 "has_saved_secret": bool(profile.get("secret")),
+                "has_uploaded_key": bool(profile.get("private_key_data")),
+                "has_uploaded_elevated_key": bool(profile.get("elevated_private_key_data")),
                 "has_saved_sudo_secret": bool(profile.get("sudo_secret")),
                 "has_saved_elevated_secret": bool(profile.get("elevated_secret")),
                 "has_saved_elevated_sudo_secret": bool(profile.get("elevated_sudo_secret"))}

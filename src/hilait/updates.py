@@ -20,7 +20,7 @@ from pathlib import Path
 import httpx
 
 from . import __version__
-from .updater import COMMIT_PATTERN, UPDATER_VERSION, VERSION_PATTERN, version_key
+from .updater import COMMIT_PATTERN, UPDATER_VERSION, VERSION_PATTERN, ensure_transfer_access, version_key
 
 REPO = "germanespinosa/Hilait"
 RELEASES_URL = f"https://raw.githubusercontent.com/{REPO}/main/releases.json"
@@ -151,16 +151,19 @@ def detect(unit: str) -> dict:
     environment = _service_property(unit, "Environment")
     match = re.search(r"HILAIT_DATA_DIR=(\S+)", environment)
     data_dir = match.group(1) if match else "/var/lib/hilait"
+    transfer = re.search(r"HILAIT_TRANSFER_DIR=(\S+)", environment)
     exec_start = _service_property(unit, "ExecStart")
     port = re.search(r"--port[ =](\d+)", exec_start)
     scheme = "https" if "--lan" in exec_start else "http"
-    return {"user": user, "data_dir": data_dir,
+    return {"user": user, "data_dir": data_dir, "transfer_dir": transfer.group(1) if transfer else f"{data_dir}-transfers",
             "health_url": f"{scheme}://127.0.0.1:{port.group(1) if port else 8765}/health"}
 
 
 def install_updater(*, unit: str, python: str, user: str, data_dir: str, health_url: str,
+                    transfer_dir: str | None = None,
                     unit_dir: Path = UNIT_DIR, lib_dir: Path = LIB_DIR, config_path: Path = CONFIG_PATH,
-                    systemctl: bool = True) -> list[str]:
+                    systemctl: bool = True) -> tuple[list[str], bool]:
+    """Install the root updater; returns the files written and whether Hilait needs a restart."""
     import pwd  # POSIX only; the updater is a systemd feature
     account = pwd.getpwnam(user)
     lib_dir.mkdir(parents=True, exist_ok=True)
@@ -169,7 +172,8 @@ def install_updater(*, unit: str, python: str, user: str, data_dir: str, health_
     script.chmod(0o644)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config = {"python": python, "unit": unit, "repo": REPO, "data_dir": data_dir, "health_url": health_url,
-              "owner_uid": account.pw_uid, "owner_gid": account.pw_gid}
+              "owner_uid": account.pw_uid, "owner_gid": account.pw_gid,
+              "transfer_dir": transfer_dir or f"{data_dir}-transfers"}
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     config_path.chmod(0o644)
     update_dir = Path(data_dir) / "update"
@@ -189,10 +193,12 @@ def install_updater(*, unit: str, python: str, user: str, data_dir: str, health_
     os.chown(marker, account.pw_uid, account.pw_gid)
     marker.chmod(0o600)
     written = [str(script), str(config_path), str(unit_dir / "hilait-update.path"), str(unit_dir / "hilait-update.service")]
+    restart = ensure_transfer_access(config, run=subprocess.run if systemctl else (lambda *a, **k: None), unit_dir=unit_dir)
+    written.append(str(unit_dir / f"{unit}.d" / "hilait-transfers.conf"))
     if systemctl:
         subprocess.run(["systemctl", "daemon-reload"], check=True)
         subprocess.run(["systemctl", "enable", "--now", "hilait-update.path"], check=True)
-    return written
+    return written, restart
 
 
 def uninstall_updater(data_dir: str, unit_dir: Path = UNIT_DIR, lib_dir: Path = LIB_DIR,

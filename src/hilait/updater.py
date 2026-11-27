@@ -24,11 +24,52 @@ import time
 import urllib.request
 from pathlib import Path
 
-UPDATER_VERSION = 1
+UPDATER_VERSION = 2
 VERSION_PATTERN = re.compile(r"^\d{1,4}\.\d{1,4}\.\d{1,4}$")
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 REQUEST_LIMIT = 4096
 DEFAULT_CONFIG = Path("/etc/hilait/updater.json")
+UNIT_DIR = Path("/etc/systemd/system")
+DROPIN_NAME = "hilait-transfers.conf"
+
+
+def transfer_directory(config: dict) -> Path:
+    """The service's default transfer folder, from the root-owned config (the unit's HILAIT_TRANSFER_DIR).
+
+    Never read from the service's data directory: the service must not be able to choose a path that
+    root then creates, hands to the service account, or opens up with ReadWritePaths=.
+    """
+    chosen = str(config.get("transfer_dir") or f"{config['data_dir']}-transfers")
+    path = Path(chosen)
+    if not path.is_absolute() or ".." in path.parts or "\n" in chosen:
+        raise ValueError(f"Unusable transfer folder {chosen!r}.")
+    return path
+
+
+def ensure_transfer_access(config: dict, run=subprocess.run, unit_dir: Path | None = None) -> bool:
+    """Let the sandboxed service write its transfer folder (ProtectSystem=strict makes the rest read-only).
+
+    Creates the folder for the service account if missing and adds a ReadWritePaths= drop-in.
+    Returns True when the drop-in changed, so the service must be restarted to see it.
+    """
+    path = transfer_directory(config)
+    if not path.exists():
+        path.mkdir(mode=0o700, parents=True)
+        if config.get("owner_uid") is not None and os.geteuid() == 0:
+            os.chown(path, config["owner_uid"], config.get("owner_gid", config["owner_uid"]))
+    dropin = Path(unit_dir or config.get("unit_dir") or UNIT_DIR) / f"{config['unit']}.d" / DROPIN_NAME
+    content = ("# Written by the Hilait updater: lets the service write its agent transfer folder.\n"
+               f"[Service]\nReadWritePaths={path}\n")
+    try:
+        if dropin.read_text(encoding="utf-8") == content:
+            return False
+    except OSError:
+        pass
+    dropin.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    dropin.write_text(content, encoding="utf-8")
+    dropin.chmod(0o644)
+    run(["systemctl", "daemon-reload"], capture_output=True, text=True, timeout=60)
+    return True
 
 
 def read_request(path: Path) -> dict:
@@ -103,6 +144,23 @@ class Updater:
         log = (result.stdout + result.stderr)[-4000:]
         return result.returncode == 0 and self.installed_version() == version, log
 
+    def refresh_self(self) -> None:
+        """Replace this updater with a newer copy shipped in the just-installed release (bump UPDATER_VERSION)."""
+        result = self.run([self.config["python"], "-c", "import hilait.updater as u; print(u.__file__)"],
+                          capture_output=True, text=True, timeout=60)
+        shipped = Path(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip() else None
+        target = Path(__file__).resolve()
+        if not shipped or not shipped.is_file() or shipped.resolve() == target:
+            return
+        text = shipped.read_text(encoding="utf-8")
+        found = re.search(r"^UPDATER_VERSION = (\d+)$", text, re.M)
+        if not found or int(found.group(1)) <= UPDATER_VERSION:  # never downgrade when switching to an older release
+            return
+        temporary = target.with_name(f".updater.{os.getpid()}.tmp")
+        temporary.write_text(text, encoding="utf-8")
+        temporary.chmod(0o644)
+        os.replace(temporary, target)
+
     def restart_and_wait(self, version: str) -> bool:
         self.run(["systemctl", "restart", self.config["unit"]], capture_output=True, text=True, timeout=180)
         health = self.config["health_url"]
@@ -143,6 +201,11 @@ class Updater:
             if not ok:
                 self.write_status(phase="failed", message="Installation failed; nothing was restarted.", log=log)
                 return self.status
+            for step in (lambda: ensure_transfer_access(self.config, self.run), self.refresh_self):
+                try:
+                    step()
+                except Exception as exc:  # never block an update on these housekeeping steps
+                    log += f"\n[updater] {type(exc).__name__}: {exc}"
             self.write_status(phase="restarting", message="Restarting Hilait.", log=log)
             if self.restart_and_wait(request["version"]):
                 self.write_status(phase="done", message=f"Hilait {request['version']} is running.")

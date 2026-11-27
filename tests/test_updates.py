@@ -12,7 +12,7 @@ import hilait.updates as updates_module
 from hilait import __version__
 from hilait.admin_auth import totp
 from hilait.server import Runtime, create_app
-from hilait.updater import Updater, read_request
+from hilait.updater import UPDATER_VERSION, Updater, read_request
 
 COMMITS = {"9" * 40: "9.9.9", "8" * 40: "0.1.58", "5" * 40: __version__, "4" * 40: "0.1.40"}
 RELEASES = {"releases": [
@@ -132,7 +132,8 @@ def updater_for(tmp_path, system, version="9.9.9"):
     folder.mkdir(exist_ok=True)
     (folder / "request.json").write_text(json.dumps({"id": "a" * 32, "version": version}))
     config = {"python": "/opt/hilait-venv/bin/python", "unit": "hilait.service", "repo": "germanespinosa/Hilait",
-              "data_dir": str(tmp_path), "health_url": "http://127.0.0.1:8765/health"}
+              "data_dir": str(tmp_path), "health_url": "http://127.0.0.1:8765/health",
+              "unit_dir": str(tmp_path / "units"), "transfer_dir": str(tmp_path / "transfers")}
     return Updater(config, run=system.run, fetch=system.fetch, sleep=lambda s: None)
 
 
@@ -173,8 +174,9 @@ def test_installer_writes_units_and_marker(tmp_path):
     import pwd
     user = pwd.getpwuid(os.getuid()).pw_name
     (tmp_path / "units").mkdir()
-    written = updates_module.install_updater(
+    written, restart = updates_module.install_updater(
         unit="hilait.service", python="/opt/hilait-venv/bin/python", user=user, data_dir=str(tmp_path / "data"),
+        transfer_dir=str(tmp_path / "hilait-transfers"),
         health_url="http://127.0.0.1:8765/health", unit_dir=tmp_path / "units", lib_dir=tmp_path / "lib",
         config_path=tmp_path / "etc" / "updater.json", systemctl=False)
     path_unit = (tmp_path / "units" / "hilait-update.path").read_text()
@@ -183,8 +185,17 @@ def test_installer_writes_units_and_marker(tmp_path):
     assert f"{tmp_path / 'lib' / 'updater.py'} --config {tmp_path / 'etc' / 'updater.json'}" in service
     assert json.loads((tmp_path / "etc" / "updater.json").read_text())["repo"] == "germanespinosa/Hilait"
     assert (tmp_path / "lib" / "updater.py").read_text() == Path(updates_module.__file__).with_name("updater.py").read_text()
-    assert json.loads((tmp_path / "data" / "update" / "updater.json").read_text())["updater_version"] == 1
-    assert len(written) == 4
+    assert json.loads((tmp_path / "data" / "update" / "updater.json").read_text())["updater_version"] == UPDATER_VERSION
+    assert len(written) == 5 and restart is True
+    dropin = (tmp_path / "units" / "hilait.service.d" / "hilait-transfers.conf").read_text()
+    assert f"ReadWritePaths={tmp_path / 'hilait-transfers'}" in dropin
+    assert (tmp_path / "hilait-transfers").is_dir() and (tmp_path / "hilait-transfers").stat().st_mode & 0o777 == 0o700
+    # Re-running is idempotent and needs no restart.
+    assert updates_module.install_updater(
+        unit="hilait.service", python="/opt/hilait-venv/bin/python", user=user, data_dir=str(tmp_path / "data"),
+        health_url="http://127.0.0.1:8765/health", transfer_dir=str(tmp_path / "hilait-transfers"),
+        unit_dir=tmp_path / "units", lib_dir=tmp_path / "lib",
+        config_path=tmp_path / "etc" / "updater.json", systemctl=False)[1] is False
 
 
 def test_passkey_step_covers_updates():
@@ -197,3 +208,37 @@ def test_release_notes_are_paged_ten_at_a_time():
     assert "const RELEASE_PAGE=10;" in script
     for marker in ('id="release-pager"', 'id="release-older"', 'id="release-newer"', 'releases.slice(page*RELEASE_PAGE'):
         assert marker in script
+
+
+def test_updater_opens_transfer_folder_before_restart_and_ignores_service_settings(tmp_path):
+    system = FakeSystem()
+    # The service can write this file; the root updater must not take paths from it.
+    (tmp_path / "transfer-settings.json").write_text(json.dumps({"directory": "/etc/systemd/system/evil.service.d"}))
+    result = updater_for(tmp_path, system).apply()
+    assert result["phase"] == "done"
+    dropin = (tmp_path / "units" / "hilait.service.d" / "hilait-transfers.conf").read_text()
+    assert dropin.endswith(f"ReadWritePaths={tmp_path / 'transfers'}\n") and "evil" not in dropin
+    reload_at = system.commands.index(["systemctl", "daemon-reload"])
+    assert reload_at < system.commands.index(["systemctl", "restart", "hilait.service"])
+
+
+def test_updater_refreshes_itself_only_from_a_newer_copy(tmp_path, monkeypatch):
+    import hilait.updater as updater_module
+    target = tmp_path / "lib" / "updater.py"
+    target.parent.mkdir()
+    target.write_text("current")
+    shipped = tmp_path / "shipped.py"
+    monkeypatch.setattr(updater_module, "__file__", str(target))
+
+    class Run:
+        def __call__(self, argv, **kwargs):
+            class Result:
+                returncode, stdout, stderr = 0, str(shipped), ""
+            return Result()
+    updater = Updater({"python": "py", "unit": "hilait.service", "data_dir": str(tmp_path)}, run=Run())
+    shipped.write_text(f"UPDATER_VERSION = {UPDATER_VERSION}\n# same version")
+    updater.refresh_self()
+    assert target.read_text() == "current"
+    shipped.write_text(f"UPDATER_VERSION = {UPDATER_VERSION + 1}\n# newer")
+    updater.refresh_self()
+    assert "newer" in target.read_text()

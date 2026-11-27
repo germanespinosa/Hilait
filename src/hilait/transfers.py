@@ -8,10 +8,12 @@ reaches the files through the browser, so nobody types server paths.
 
 from __future__ import annotations
 
+import errno
 import os
 import re
 import shutil
 import stat
+import sys
 import tempfile
 from pathlib import Path
 from typing import AsyncIterator
@@ -77,6 +79,13 @@ class TransferArea:
         try:
             path.mkdir(parents=True, exist_ok=True, mode=0o700)
         except OSError as exc:
+            if exc.errno == errno.EROFS and os.environ.get("INVOCATION_ID"):
+                # Running under systemd's ProtectSystem=strict without permission to write this folder.
+                raise PermissionError(
+                    f"Hilait's service is not allowed to write its transfer folder {path}. On the server, run "
+                    f"`sudo {Path(sys.executable).with_name('hilait')} updater install` once and restart Hilait "
+                    "(it lets the service write that folder), or choose another writable folder in "
+                    "Settings → File transfers.") from exc
             raise PermissionError(f"Hilait cannot create its transfer folder {path}: {exc.strerror or exc}. "
                                   "Choose a writable folder in Settings → File transfers.") from exc
         _private_directory(path)

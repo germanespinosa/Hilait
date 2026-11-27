@@ -6,7 +6,7 @@ lives, and the invariants that changes must preserve. The user-facing
 behaviour is documented in [README.md](../README.md); credential handling is
 documented in [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
-*Last reviewed for package version **0.1.61** (paged release notes),
+*Last reviewed for package version **0.1.62** (transfer folder drop-in),
 2026-11-27.* Update this file
 whenever a change alters the architecture, an API, a stored file, or an
 invariant listed below.
@@ -66,7 +66,7 @@ src/hilait/
   mcp_server.py    stdio MCP bridge run on the agent's machine; forwards to /agent/{tool}. `register_agent_tools()` is shared with remote_mcp.py (its tools pass `locals()`; the wrapper drops the captured `call` key)
   remote_mcp.py    Hosted MCP endpoint at /mcp (stateless Streamable HTTP); agent bearer token per request; tools run in-process via run_agent_tool
   updates.py       Settings → Updates: release list (releases.json on GitHub), guarded update requests, session hand-off, `hilait updater install`
-  updater.py       Standalone stdlib root updater (copied to /usr/local/lib/hilait-updater): installs a release commit, restarts, health-checks, rolls back
+  updater.py       Standalone stdlib root updater (copied to /usr/local/lib/hilait-updater): installs a release commit, adds the transfer-folder ReadWritePaths drop-in, refreshes itself from a newer shipped copy (UPDATER_VERSION), restarts, health-checks, rolls back
   review.py        LLM activity review: evidence building, prompts, provider streaming, result validation
   ntfy.py          ntfy push for pending approvals and low review scores
   tls.py           Persistent self-signed certificate for `--lan` HTTPS
@@ -617,4 +617,4 @@ hilait serve --open          # local run on http://127.0.0.1:8765
     `'self'`-only, including `connect-src`.
 14. In-app updates: the service only writes a version number to `update/request.json`; the root updater builds the
     download URL from its own config (fixed repo, `archive/<commit>.zip`) using the commit recorded for that version in
-    `releases.json` on GitHub; it accepts only versions listed there. Never let the service pass URLs, paths or commands to the updater.
+    `releases.json` on GitHub; it accepts only versions listed there. Never let the service pass URLs, paths or commands to the updater. The transfer-folder drop-in uses only the root-owned `transfer_dir` in `/etc/hilait/updater.json` (from the unit at install time), never `transfer-settings.json`, which the service can write. Bump `UPDATER_VERSION` whenever updater.py changes: installed updaters replace themselves only with a higher version.

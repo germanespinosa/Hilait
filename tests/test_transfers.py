@@ -159,3 +159,19 @@ async def test_local_transfer_approval_uses_managed_folder(tmp_path, fixture_ser
     finally:
         for session_id in list(runtime.sessions.sessions):
             await runtime.sessions.close(session_id)
+
+
+def test_read_only_transfer_root_under_systemd_explains_the_fix(tmp_path, monkeypatch):
+    import errno
+    runtime = create_app(tmp_path / "data").state.runtime
+    monkeypatch.setenv("HILAIT_TRANSFER_DIR", str(tmp_path / "locked"))
+    monkeypatch.setenv("INVOCATION_ID", "0" * 32)
+
+    def read_only(self, *args, **kwargs):
+        raise OSError(errno.EROFS, "Read-only file system")
+    monkeypatch.setattr(Path, "mkdir", read_only)
+    with pytest.raises(PermissionError, match="updater install"):
+        runtime.transfers._ensure_root(tmp_path / "locked")
+    monkeypatch.delenv("INVOCATION_ID")
+    with pytest.raises(PermissionError, match="Choose a writable folder"):
+        runtime.transfers._ensure_root(tmp_path / "locked")

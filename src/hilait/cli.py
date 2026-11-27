@@ -51,9 +51,12 @@ def main() -> None:
             uninstall_updater(data_dir)
             print("Hilait updater removed.")
             return
-        written = install_updater(unit=args.unit, python=sys.executable, user=args.user or found["user"],
-                                  data_dir=data_dir, health_url=args.health_url or found["health_url"])
+        written, restart = install_updater(unit=args.unit, python=sys.executable, user=args.user or found["user"],
+                                           data_dir=data_dir, health_url=args.health_url or found["health_url"],
+                                           transfer_dir=found.get("transfer_dir"))
         print("Hilait updater installed:\n  " + "\n  ".join(written))
+        if restart:
+            print(f"The service may now write its transfer folder. Restart it to apply: sudo systemctl restart {args.unit}")
         print(f"Service {args.unit}, data {data_dir}, health {args.health_url or found['health_url']}.")
         print("Open Settings → Updates in Hilait to install new versions.")
         return
